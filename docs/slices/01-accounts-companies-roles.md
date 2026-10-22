@@ -105,7 +105,24 @@ The six-digit code is at http://localhost:3001/dev/mail (nothing leaves your mac
 Then as Eraste: invite someone, open the dev inbox, follow the link, set a password, sign in as them.
 Try `/setup` to create a second, single-company account: it will have one company and no switcher.
 
-## 6. What was tested, and how
+## 6. Your test road — seven runs, tick each one
+
+Password for every demo person: `Oliu-demo-2026`. Codes land in http://localhost:3001/dev/mail (refresh it).
+
+| # | Run | Sign in as | What must happen | ✓ |
+|---|---|---|---|---|
+| 1 | The owner | eraste.k@oliulogistics.rw | All ten menus · switcher with OLIU and JIVAH · badge "all companies" · User management shows 12 people, Charles suspended · Company & subscription shows two companies, OLIU bills the client, five OLIU bank accounts · Audit trail's top row is your own login | ☐ |
+| 2 | The other side | samuel.n@jivahlogistics.co.tz | No switcher · badge JIVAH LOGISTICS LTD · nothing of OLIU anywhere · Shipments says "slice 2" | ☐ |
+| 3 | Finance | aline.u@oliulogistics.rw | Only Home, Payments, Invoices, Accounting, Reports, Notifications · no Settings, no Checks | ☐ |
+| 4 | The field | peace.k@oliulogistics.rw | Three menus only · typing `/app/aud` in the address bar says the screen is not visible to your role | ☐ |
+| 5 | Suspension | charles.m@jivahlogistics.co.tz | Sign-in refused with the suspension message · as Eraste, the refused attempt is in the Audit trail · Reactivate him in User management · Charles can now sign in | ☐ |
+| 6 | Invite someone | Eraste → a new person | Invite by e-mail (any name, e-mail, role, company) · the invitation link is in the inbox · set a password · sign in as that person · Eraste's Audit trail shows user invited, password set, login | ☐ |
+| 7 | A new single-company client | http://localhost:3000/setup | Create an account with one company and yourself as owner · sign in · one company, no switcher | ☐ |
+
+Pass when all seven are ticked and nothing looked wrong, slow or confusing, wording included.
+Note: the login limit is 20 attempts per 15 minutes from one address; if you hit it, the API is restarted.
+
+## 7. What was tested, and how
 
 Twelve automated tests run against a fresh database on every `npm test` (about 8 seconds):
 
@@ -129,7 +146,7 @@ hashes · session cookie httpOnly, signed, SameSite · rate limits on login, cod
 validated with a schema · every query parameterised by Prisma · secrets only in `.env` · helmet headers ·
 errors never leak internals · dependencies pinned.
 
-## 7. What was deliberately left out
+## 8. What was deliberately left out
 
 - No bookings, containers, money. Slice 2 starts the container.
 - No four-eyes on bank account changes yet (the fields exist; the rule arrives with Payments, slice 6).
@@ -137,7 +154,7 @@ errors never leak internals · dependencies pinned.
 - No owner portal: the account is created from `/setup`, which is the same set-up form the tenant keeps.
 - Nothing is sent by real e-mail or SMS yet; development keeps mail on the machine. Production needs an SMTP account.
 
-## 8. Two things that changed on the way
+## 9. Two things that changed on the way
 
 - **Docker is not installed on this machine, and the application-control policy blocks native PostgreSQL
   binaries.** Development therefore runs PGlite: real PostgreSQL compiled to WebAssembly, served on a port
@@ -146,7 +163,7 @@ errors never leak internals · dependencies pinned.
 - A force-killed API can leave the local database holding a dead connection. The database script now keeps
   running through that; if it ever looks stuck, stop it with Ctrl+C and run `npm run db:start` again.
 
-## 9. Questions for you
+## 10. Questions for you
 
 1. The **department mailboxes** (management@, ops@, finance@, transport@, reports@ for OLIU; the same for JIVAH)
    must exist before slice 1 can be tested with real e-mail. Who creates them, and by when?
