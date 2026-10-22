@@ -34,7 +34,7 @@ Three screens work. Every other menu is there, in the right place, and says whic
 | One login per person, one role, in one company or all | `User` table: `role`, `companyId` (null = all) | User management: each person's row |
 | The one-time code goes to a **department mailbox**, not a personal inbox | `User.otpMailbox` | Login step 2 names the mailbox |
 | A person sees only their company's side | `middleware/auth.ts` builds a *scope* from the session; every query filters by it | Sign in as Samuel (JIVAH): only JIVAH in the switcher, no OLIU anywhere |
-| The owner sees across all companies | MD and Reporting Officer have `companyId = null` | Sign in as Eraste: switcher with OLIU, JIVAH, Rusumo office |
+| The owner sees across all companies | MD and Reporting Officer have `companyId = null` | Sign in as Eraste: switcher with OLIU and JIVAH |
 | A suspended person is refused and the attempt is kept | `identity/routes.ts` login → `login_refused` audit row | Try Charles Mwakasege |
 | History cannot be edited or deleted, by anyone | a database trigger on `AuditEvent` refuses UPDATE and DELETE | Test "the audit table refuses UPDATE and DELETE" |
 | The browser is never trusted | the web app only displays what `/api/auth/me` returns; menus, permissions and company lists come from the API | Change nothing in the browser, the API still decides |
@@ -95,7 +95,7 @@ The six-digit code is at http://localhost:3001/dev/mail (nothing leaves your mac
 
 | Sign in as | E-mail | What you should see |
 |---|---|---|
-| Eraste K., MD | eraste.k@oliulogistics.rw | all ten menus, the company switcher, 12 people, the audit trail |
+| Eraste K., MD | eraste.k@oliulogistics.rw | all ten menus, the switcher with OLIU and JIVAH, 12 people, the audit trail |
 | Samuel Nyerere, Ops Manager JIVAH | samuel.n@jivahlogistics.co.tz | nine menus, no switcher, JIVAH only |
 | Aline Uwase, Finance Officer OLIU | aline.u@oliulogistics.rw | Home, Payments, Invoices, Accounting, Reports, Notifications |
 | Peace Kayitesi, Field Officer | peace.k@oliulogistics.rw | Shipments, Field payments, Notifications; cannot open the audit trail |
@@ -113,7 +113,7 @@ Twelve automated tests run against a fresh database on every `npm test` (about 8
   no partner, two billers, or a branch without a parent.
 - Login mails a six-digit code to the department mailbox; a wrong code is refused; a forged cookie is refused;
   a wrong password and an unknown e-mail get the same answer (nothing to learn from the difference).
-- A JIVAH Finance Officer never sees the OLIU company, even when asking for it by name; the MD sees all three.
+- A JIVAH Finance Officer never sees the OLIU company, even when asking for it by name; the MD sees every company.
 - The switcher accepts only a company of the same account (another account's company: 403).
 - A Finance Officer cannot invite; the MD can; a company-bound role must be given a company.
 - A single-company account has one company and no partner.

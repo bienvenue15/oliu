@@ -38,9 +38,6 @@ async function main() {
   const jivah = await prisma.company.create({
     data: { accountId: account.id, legalName: 'JIVAH LOGISTICS LTD', country: 'TZ', currency: 'TZS', address: 'Dar es Salaam — Tanzania', kind: 'PARTNER', billsClient: false },
   });
-  await prisma.company.create({
-    data: { accountId: account.id, legalName: 'JIVAH — Rusumo office', country: 'TZ', currency: 'TZS', kind: 'BRANCH', parentId: jivah.id },
-  });
 
   type P = { name: string; email: string; role: 'MD' | 'OPS_MANAGER' | 'FINANCE_OFFICER' | 'TRANSPORT_COORDINATOR' | 'FIELD_OFFICER' | 'REPORTING_OFFICER'; company: string | null; mailbox: string; status?: 'SUSPENDED' };
   const people: P[] = [

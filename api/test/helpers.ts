@@ -21,7 +21,7 @@ export const groupSetup = (ownerEmail = 'md@oliu.test') => ({
   companies: [
     { legalName: 'OLIU LOGISTICS LTD', country: 'RW', currency: 'RWF', tin: '120126551', kind: 'MAIN', billsClient: true },
     { legalName: 'JIVAH LOGISTICS LTD', country: 'TZ', currency: 'TZS', kind: 'PARTNER', billsClient: false },
-    { legalName: 'JIVAH — Rusumo', country: 'TZ', currency: 'TZS', kind: 'BRANCH', parentIndex: 1, billsClient: false },
+    { legalName: 'OLIU — Rubavu office', country: 'RW', currency: 'RWF', kind: 'BRANCH', parentIndex: 0, billsClient: false },
   ],
   owner: { name: 'Eraste K.', email: ownerEmail, password: PASSWORD },
 });

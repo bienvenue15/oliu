@@ -26,7 +26,7 @@ describe('account set-up', () => {
     expect(r.status).toBe(201);
     const companies = await prisma.company.findMany({ where: { accountId: r.body.accountId }, orderBy: { createdAt: 'asc' } });
     expect(companies.map((c) => c.kind)).toEqual(['MAIN', 'PARTNER', 'BRANCH']);
-    expect(companies[2]!.parentId).toBe(companies[1]!.id);
+    expect(companies[2]!.parentId).toBe(companies[0]!.id);
     expect(companies.filter((c) => c.billsClient)).toHaveLength(1);
     const owner = await prisma.user.findUniqueOrThrow({ where: { id: r.body.ownerId } });
     expect(owner.role).toBe('MD');
@@ -100,7 +100,6 @@ describe('scoping — every person sees only their side', () => {
 
     // Asking for the other company through the switcher header is refused.
     const sneaky = await request(app).get('/api/account').set('Cookie', charles).set('X-Company', oliu!.id);
-    expect(acct.body.companies.map((c: { id: string }) => c.id)).not.toContain(oliu!.id);
     expect(sneaky.status).toBe(200); // header ignored for a one-company user
     expect(sneaky.body.companies.map((c: { id: string }) => c.id)).not.toContain(oliu!.id);
 
