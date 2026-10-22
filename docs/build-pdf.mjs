@@ -1,5 +1,6 @@
 /**
- * Turns every slice note in docs/slices/*.md into a PDF next to it, using the Edge/Chrome on this machine.
+ * Turns every slice note written in docs/.src/*.md into docs/slices/*.pdf, using the Edge/Chrome on this machine.
+ * The PDF is the deliverable; the Markdown source and screenshots stay local in docs/.src (not committed).
  *   node docs/build-pdf.mjs            all notes
  *   node docs/build-pdf.mjs 01         one note by its number prefix
  */
@@ -9,8 +10,8 @@ import { spawnSync } from 'node:child_process';
 import { marked } from 'marked';
 
 const here = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-const slicesDir = resolve(here, 'slices');
-const outDir = resolve(slicesDir, 'pdf');
+const slicesDir = resolve(here, '.src');
+const outDir = resolve(here, 'slices');
 const browser = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
 if (!browser) throw new Error('No Edge or Chrome found to print the PDF');
 if (!existsSync(outDir)) mkdirSync(outDir);
@@ -44,5 +45,5 @@ for (const f of notes) {
   const pdf = resolve(outDir, `${basename(f, '.md')}.pdf`);
   const r = spawnSync(browser, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-pdf-header-footer', `--print-to-pdf=${pdf}`, `file:///${tmp.replace(/\\/g, '/')}`], { stdio: 'ignore' });
   if (r.status !== 0) throw new Error(`printing ${f} failed`);
-  console.log(`${f} → slices/pdf/${basename(pdf)}`);
+  console.log(`${f} → slices/${basename(pdf)}`);
 }

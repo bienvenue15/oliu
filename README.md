@@ -6,7 +6,7 @@ Operations, payments, blind reconciliation and invoicing, one container at a tim
 
 The design documents live in [`documents/`](documents/). The build follows the
 twelve-slice roadmap in `documents/OLIU_Build_Roadmap.html`; after every slice a
-plain-language note is written in [`docs/slices/`](docs/slices/).
+plain-language note (PDF) is written in [`docs/slices/`](docs/slices/).
 
 ## Layout
 

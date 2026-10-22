@@ -1,0 +1,231 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>01-accounts-companies-roles</title><style>
+@page { size: A4; margin: 16mm 14mm; }
+body { font: 11.5pt/1.5 "Segoe UI", Arial, sans-serif; color: #1c2733; max-width: 100%; }
+h1 { font-size: 22pt; color: #16283c; margin: 0 0 4px; }
+h2 { font-size: 15pt; color: #16283c; margin: 22px 0 6px; border-bottom: 1px solid #dfe5eb; padding-bottom: 3px; page-break-after: avoid; }
+h3 { font-size: 12pt; color: #b4682a; margin: 14px 0 4px; }
+p, li { margin: 4px 0; }
+code { font-family: Consolas, Menlo, monospace; font-size: 10pt; background: #f4f6f8; padding: 1px 4px; border-radius: 3px; }
+pre { background: #f4f6f8; border: 1px solid #dfe5eb; border-radius: 6px; padding: 8px 10px; font-size: 9.5pt; white-space: pre-wrap; page-break-inside: avoid; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 10pt; margin: 6px 0; page-break-inside: avoid; }
+th { background: #f6f8fa; text-align: left; padding: 5px 7px; border-bottom: 1px solid #dfe5eb; font-size: 9pt; text-transform: uppercase; letter-spacing: .04em; color: #7a8794; }
+td { padding: 5px 7px; border-bottom: 1px solid #eef2f7; vertical-align: top; }
+img { max-width: 100%; border: 1px solid #dfe5eb; border-radius: 6px; }
+table img { max-width: 100%; }
+hr { border: none; border-top: 1px solid #dfe5eb; margin: 14px 0; }
+blockquote { border-left: 3px solid #b4682a; margin: 8px 0; padding: 2px 10px; color: #45525f; }
+</style></head><body><h1>Slice 1 — Accounts, companies, roles</h1>
+<p><strong>Built:</strong> 22 October 2026 · <strong>Status:</strong> code complete, 12 automated tests passing, waiting for your live test.
+<strong>Roadmap:</strong> slice 1 of 12, the spine. Nothing else exists yet, on purpose.</p>
+<p>This note is written for you, not for a developer. It says what exists, how it works, how to try it,
+what was tested, what was left out, and the questions for you.</p>
+<hr>
+<h2>1. What exists now, in one picture</h2>
+<pre><code> browser (Nuxt, port 3000)  ──/api/*──▶  API (Express, port 3001)  ──▶  PostgreSQL
+   login · one-time code                 checks who you are and             Account
+   set-up questions                      what you may touch on              Company · BankAccount
+   Settings → User management            EVERY request                      User · Session · OtpChallenge · ActionToken
+   Settings → Company &amp; subscription                                        FeatureSwitch
+   Checks → Audit trail                                                     AuditEvent (append-only)
+</code></pre>
+<p>Three screens work. Every other menu is there, in the right place, and says which slice brings it.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><img src="img/01-login.png" alt="Login"></td>
+<td><img src="img/01-setup.png" alt="Set-up questions"></td>
+</tr>
+<tr>
+<td><img src="img/01-users.png" alt="User management, as the MD"></td>
+<td><img src="img/01-company.png" alt="Company &amp; subscription"></td>
+</tr>
+<tr>
+<td><img src="img/01-audit.png" alt="Audit trail"></td>
+<td><img src="img/01-jivah-ops.png" alt="A JIVAH Operations Manager: JIVAH only, no switcher"></td>
+</tr>
+</tbody></table>
+<h2>2. The rules this slice makes true</h2>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Where it lives</th>
+<th>How you can see it</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>One login per person, one role, in one company or all</td>
+<td><code>User</code> table: <code>role</code>, <code>companyId</code> (null = all)</td>
+<td>User management: each person&#39;s row</td>
+</tr>
+<tr>
+<td>The one-time code goes to a <strong>department mailbox</strong>, not a personal inbox</td>
+<td><code>User.otpMailbox</code></td>
+<td>Login step 2 names the mailbox</td>
+</tr>
+<tr>
+<td>A person sees only their company&#39;s side</td>
+<td><code>middleware/auth.ts</code> builds a <em>scope</em> from the session; every query filters by it</td>
+<td>Sign in as Samuel (JIVAH): only JIVAH in the switcher, no OLIU anywhere</td>
+</tr>
+<tr>
+<td>The owner sees across all companies</td>
+<td>MD and Reporting Officer have <code>companyId = null</code></td>
+<td>Sign in as Eraste: switcher with OLIU, JIVAH, Rusumo office</td>
+</tr>
+<tr>
+<td>A suspended person is refused and the attempt is kept</td>
+<td><code>identity/routes.ts</code> login → <code>login_refused</code> audit row</td>
+<td>Try Charles Mwakasege</td>
+</tr>
+<tr>
+<td>History cannot be edited or deleted, by anyone</td>
+<td>a database trigger on <code>AuditEvent</code> refuses UPDATE and DELETE</td>
+<td>Test &quot;the audit table refuses UPDATE and DELETE&quot;</td>
+</tr>
+<tr>
+<td>The browser is never trusted</td>
+<td>the web app only displays what <code>/api/auth/me</code> returns; menus, permissions and company lists come from the API</td>
+<td>Change nothing in the browser, the API still decides</td>
+</tr>
+</tbody></table>
+<h2>3. How a request travels through the code</h2>
+<p>Take &quot;Aline, Finance Officer at OLIU, opens User management&quot;.</p>
+<ol>
+<li>The browser calls <code>GET /api/users</code> with the session cookie. Nuxt proxies it to the API.</li>
+<li><code>attachSession</code> (api/src/middleware/auth.ts) reads the cookie, checks its signature, loads the
+session and the user. It builds a <strong>Scope</strong>: <code>{ accountId, userId, role: FINANCE_OFFICER, companyId: OLIU }</code>.</li>
+<li>The route (api/src/modules/accounts/routes.ts) asks <code>requireAuth</code>, then queries users
+<code>where accountId = scope.accountId and (companyId = OLIU or companyId = null)</code>. The filter comes
+from the scope, never from anything Aline typed.</li>
+<li>The answer is a list of OLIU people and the all-company people. JIVAH&#39;s staff are not in it.</li>
+</ol>
+<p>Take &quot;Eraste invites Charles as JIVAH Finance Officer&quot;.</p>
+<ol>
+<li><code>POST /api/users</code> with name, e-mail, role, company. <code>requirePermission(&#39;users&#39;)</code>: only the MD passes.</li>
+<li>The route checks the company belongs to the account and that the role needs a company.</li>
+<li>In one transaction: the user row is created with status <code>INVITED</code>, an audit row <code>user_invited</code> is written.</li>
+<li>A one-use link is e-mailed (in development it lands in <code>http://localhost:3001/dev/mail</code>).</li>
+<li>Charles opens the link, chooses a password, becomes <code>ACTIVE</code>. Audit row <code>password_set</code>.</li>
+</ol>
+<h2>4. Folders, so you can find things</h2>
+<pre><code>shared/src/index.ts           the vocabulary: six roles, their permissions and screens, packages, stages,
+                              the set-up questions (validation rules), company kinds
+api/src/config.ts             reads .env once, refuses to start if something is missing
+api/src/db.ts                 the database client and the scope helpers (byAccount, byCompany)
+api/src/middleware/auth.ts    who is calling; requireAuth / requireRole / requirePermission
+api/src/lib/                  audit, crypto (hashing, signing), mail, errors, validation
+api/src/modules/identity/     login, one-time code, logout, me, set-password, forgot
+api/src/modules/accounts/     create account, companies, bank accounts, people
+api/src/modules/audit/        read the trail
+api/src/modules/dev/          development inbox (never in production)
+api/prisma/schema.prisma      the tables; migrations/ holds the SQL that created them
+api/prisma/seed.ts            the OLIU · JIVAH demo account with twelve people
+api/test/slice1.test.ts       the roadmap&#39;s tests as code
+web/pages/                    login, setup, set-password, forgot, app/[screen]
+web/components/Screen*.vue    the three built screens
+web/layouts/app.vue           the sidebar built from what the API says the role may open
+</code></pre>
+<h2>5. Try it yourself</h2>
+<pre><code>npm run db:start      (keep this window open)
+npm run db:migrate
+npm run db:seed
+npm run dev:api       (second window)
+npm run dev:web       (third window)
+</code></pre>
+<p>Open <a href="http://localhost:3000">http://localhost:3000</a>. Password for every demo person: <code>Oliu-demo-2026</code>.
+The six-digit code is at <a href="http://localhost:3001/dev/mail">http://localhost:3001/dev/mail</a> (nothing leaves your machine in development).</p>
+<table>
+<thead>
+<tr>
+<th>Sign in as</th>
+<th>E-mail</th>
+<th>What you should see</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Eraste K., MD</td>
+<td><a href="mailto:eraste.k@oliulogistics.rw">eraste.k@oliulogistics.rw</a></td>
+<td>all ten menus, the company switcher, 12 people, the audit trail</td>
+</tr>
+<tr>
+<td>Samuel Nyerere, Ops Manager JIVAH</td>
+<td><a href="mailto:samuel.n@jivahlogistics.co.tz">samuel.n@jivahlogistics.co.tz</a></td>
+<td>nine menus, no switcher, JIVAH only</td>
+</tr>
+<tr>
+<td>Aline Uwase, Finance Officer OLIU</td>
+<td><a href="mailto:aline.u@oliulogistics.rw">aline.u@oliulogistics.rw</a></td>
+<td>Home, Payments, Invoices, Accounting, Reports, Notifications</td>
+</tr>
+<tr>
+<td>Peace Kayitesi, Field Officer</td>
+<td><a href="mailto:peace.k@oliulogistics.rw">peace.k@oliulogistics.rw</a></td>
+<td>Shipments, Field payments, Notifications; cannot open the audit trail</td>
+</tr>
+<tr>
+<td>Claire Irakoze, Reporting Officer</td>
+<td><a href="mailto:claire.i@oliulogistics.rw">claire.i@oliulogistics.rw</a></td>
+<td>read-only banner; audit trail readable</td>
+</tr>
+<tr>
+<td>Charles Mwakasege</td>
+<td><a href="mailto:charles.m@jivahlogistics.co.tz">charles.m@jivahlogistics.co.tz</a></td>
+<td>refused: suspended. Reactivate him as Eraste, then he can sign in</td>
+</tr>
+</tbody></table>
+<p>Then as Eraste: invite someone, open the dev inbox, follow the link, set a password, sign in as them.
+Try <code>/setup</code> to create a second, single-company account: it will have one company and no switcher.</p>
+<h2>6. What was tested, and how</h2>
+<p>Twelve automated tests run against a fresh database on every <code>npm test</code> (about 8 seconds):</p>
+<ul>
+<li>Account set-up creates main, partner and branch companies and the owner as MD; refuses a group with
+no partner, two billers, or a branch without a parent.</li>
+<li>Login mails a six-digit code to the department mailbox; a wrong code is refused; a forged cookie is refused;
+a wrong password and an unknown e-mail get the same answer (nothing to learn from the difference).</li>
+<li>A JIVAH Finance Officer never sees the OLIU company, even when asking for it by name; the MD sees all three.</li>
+<li>The switcher accepts only a company of the same account (another account&#39;s company: 403).</li>
+<li>A Finance Officer cannot invite; the MD can; a company-bound role must be given a company.</li>
+<li>A single-company account has one company and no partner.</li>
+<li>Suspension: the session dies, the next login is refused, the refusal is in the trail, the MD can reactivate.</li>
+<li>The audit table refuses UPDATE and DELETE at database level.</li>
+<li>A Field Officer cannot read the trail; a Reporting Officer can, with no write permissions.</li>
+</ul>
+<p>Also done by hand through the running web app: the six logins above, the switcher guard, the people list,
+the audit trail, the dev inbox.</p>
+<p>Security checklist for this slice: passwords hashed with argon2id · codes and link tokens stored only as
+hashes · session cookie httpOnly, signed, SameSite · rate limits on login, code and set-up · every input
+validated with a schema · every query parameterised by Prisma · secrets only in <code>.env</code> · helmet headers ·
+errors never leak internals · dependencies pinned.</p>
+<h2>7. What was deliberately left out</h2>
+<ul>
+<li>No bookings, containers, money. Slice 2 starts the container.</li>
+<li>No four-eyes on bank account changes yet (the fields exist; the rule arrives with Payments, slice 6).</li>
+<li>Feature switches are stored but have no screen; they get one in the owner portal.</li>
+<li>No owner portal: the account is created from <code>/setup</code>, which is the same set-up form the tenant keeps.</li>
+<li>Nothing is sent by real e-mail or SMS yet; development keeps mail on the machine. Production needs an SMTP account.</li>
+</ul>
+<h2>8. Two things that changed on the way</h2>
+<ul>
+<li><strong>Docker is not installed on this machine, and the application-control policy blocks native PostgreSQL
+binaries.</strong> Development therefore runs PGlite: real PostgreSQL compiled to WebAssembly, served on a port
+so Prisma talks to it normally. The server will use ordinary PostgreSQL from <code>docker-compose.yml</code>; nothing
+in the code knows the difference. Hosting in Kigali is unchanged.</li>
+<li>A force-killed API can leave the local database holding a dead connection. The database script now keeps
+running through that; if it ever looks stuck, stop it with Ctrl+C and run <code>npm run db:start</code> again.</li>
+</ul>
+<h2>9. Questions for you</h2>
+<ol>
+<li>The <strong>department mailboxes</strong> (management@, ops@, finance@, transport@, reports@ for OLIU; the same for JIVAH)
+must exist before slice 1 can be tested with real e-mail. Who creates them, and by when?</li>
+<li>The Reporting Officer is <strong>all-company</strong> in the old mockup. Keep that, or make it a per-company role too?</li>
+<li>The demo seed names people from the mockup. Give me the <strong>real list of twelve</strong> (name, e-mail, role, company)
+when you have it and the seed becomes the real first load.</li>
+</ol>
+</body></html>
