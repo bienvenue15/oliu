@@ -1,17 +1,18 @@
 /**
- * Turns every slice note written in docs/.src/*.md into docs/slices/*.pdf, using the Edge/Chrome on this machine.
- * The PDF is the deliverable; the Markdown source and screenshots stay local in docs/.src (not committed).
+ * Turns every slice note docs/slices/*.md into a PDF next to it, using the Edge/Chrome on this machine.
+ * Markdown is the source (readable on GitHub), the PDF is the copy to open offline. No HTML is kept.
  *   node docs/build-pdf.mjs            all notes
  *   node docs/build-pdf.mjs 01         one note by its number prefix
  */
-import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve, basename, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { marked } from 'marked';
 
 const here = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-const slicesDir = resolve(here, '.src');
-const outDir = resolve(here, 'slices');
+const slicesDir = resolve(here, 'slices');
+const outDir = slicesDir;
 const browser = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
 if (!browser) throw new Error('No Edge or Chrome found to print the PDF');
 if (!existsSync(outDir)) mkdirSync(outDir);
@@ -39,11 +40,13 @@ const only = process.argv[2];
 const notes = readdirSync(slicesDir).filter((f) => f.endsWith('.md') && (!only || f.startsWith(only)));
 for (const f of notes) {
   const md = readFileSync(resolve(slicesDir, f), 'utf8');
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${basename(f, '.md')}</title><style>${css}</style></head><body>${marked.parse(md)}</body></html>`;
-  const tmp = resolve(slicesDir, `.${basename(f, '.md')}.html`);
+  const imgBase = `file:///${slicesDir.split('\\').join('/')}/`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${basename(f, '.md')}</title><base href="${imgBase}"><style>${css}</style></head><body>${marked.parse(md)}</body></html>`;
+  const tmp = resolve(tmpdir(), `oliu-${basename(f, '.md')}.html`);
   writeFileSync(tmp, html);
   const pdf = resolve(outDir, `${basename(f, '.md')}.pdf`);
   const r = spawnSync(browser, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-pdf-header-footer', `--print-to-pdf=${pdf}`, `file:///${tmp.replace(/\\/g, '/')}`], { stdio: 'ignore' });
+  rmSync(tmp, { force: true });
   if (r.status !== 0) throw new Error(`printing ${f} failed`);
   console.log(`${f} → slices/${basename(pdf)}`);
 }
