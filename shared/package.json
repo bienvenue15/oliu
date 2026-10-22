@@ -1,0 +1,13 @@
+{
+  "name": "@oliu/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Rules both the API and the web app rely on: roles, packages, company kinds, stages, menus, set-up questions.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  }
+}

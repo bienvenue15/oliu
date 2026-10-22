@@ -1,0 +1,27 @@
+{
+  "name": "oliu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OLIU — management information system for corridor freight forwarders: operations, payments, reconciliation, invoicing.",
+  "workspaces": [
+    "shared",
+    "api",
+    "web"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace api",
+    "dev:web": "npm run dev --workspace web",
+    "db:start": "npm run db:start --workspace api",
+    "db:migrate": "npm run db:migrate --workspace api",
+    "db:seed": "npm run db:seed --workspace api",
+    "test": "npm run test --workspace api",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write \"**/*.{ts,vue,js,json,md,yml}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

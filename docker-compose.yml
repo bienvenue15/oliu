@@ -1,0 +1,31 @@
+# OLIU — local or server infrastructure.
+# Development on this machine uses an embedded PostgreSQL (see api/README.md) because Docker is not installed;
+# this file is the same database for the server, so nothing changes between the two.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: oliu
+      POSTGRES_USER: oliu
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oliu_dev_only}
+    ports:
+      - '5432:5432'
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U oliu -d oliu']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Catches every e-mail the API sends (one-time codes, invitations) so nothing leaves the machine in development.
+  mail:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - '8025:8025' # web inbox
+      - '1025:1025' # SMTP
+
+volumes:
+  dbdata:

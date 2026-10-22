@@ -1,0 +1,733 @@
+<title>Corridor MIS Build Road</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a road down the left, ten stations; one container travels it as the reader scrolls. */
+:root{
+  --bg:#eef2f5; --paper:#ffffff; --paper2:#f7f9fb; --ink:#13202c; --body:#3b4a58; --mute:#75848f; --line:#d6dee6;
+  --road:#1c2b3a; --road-dash:#e9eef3; --amber:#d9731f; --amber-soft:#fbe9d8; --teal:#1f8a8a; --teal-soft:#dff1f1;
+  --ok:#1f8a4a; --ok-soft:#dff3e6; --bad:#c23b2e; --bad-soft:#f9e1de; --open:#8a6116; --open-soft:#fbf1d3;
+  --display:"Fraunces",Georgia,serif; --sans:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --mono:"IBM Plex Mono",Consolas,monospace;
+  --sh:0 1px 2px rgba(19,32,44,.06),0 10px 30px rgba(19,32,44,.07);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0e161e; --paper:#162129; --paper2:#1c2832; --ink:#eef3f7; --body:#c4cfd8; --mute:#8a98a4; --line:#2a3845;
+  --road:#e3ebf2; --road-dash:#0e161e; --amber:#f08a37; --amber-soft:#3a2614; --teal:#3cb8b8; --teal-soft:#123234;
+  --ok:#4cc27a; --ok-soft:#133022; --bad:#ef6c5e; --bad-soft:#3b1b18; --open:#e4b14a; --open-soft:#3a2f12;
+  --sh:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35); color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#0e161e; --paper:#162129; --paper2:#1c2832; --ink:#eef3f7; --body:#c4cfd8; --mute:#8a98a4; --line:#2a3845;
+  --road:#e3ebf2; --road-dash:#0e161e; --amber:#f08a37; --amber-soft:#3a2614; --teal:#3cb8b8; --teal-soft:#123234;
+  --ok:#4cc27a; --ok-soft:#133022; --bad:#ef6c5e; --bad-soft:#3b1b18; --open:#e4b14a; --open-soft:#3a2f12;
+  --sh:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35); color-scheme:dark }
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--body);font:15px/1.6 var(--sans);padding-inline:16px;padding-block:0 60px}
+.wrap{max-width:1080px;margin:0 auto}
+h1,h2,h3{color:var(--ink);text-wrap:balance;font-family:var(--display)}
+.mono{font-family:var(--mono);font-size:.92em}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- hero ---------- */
+.hero{padding:56px 0 28px;display:grid;grid-template-columns:1.2fr 1fr;gap:32px;align-items:center}
+.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700}
+.hero h1{font-size:clamp(34px,5.5vw,62px);line-height:1.02;font-weight:900;margin:10px 0 14px;letter-spacing:-.01em}
+.hero p{max-width:60ch;font-size:16.5px}
+.hero .rule{display:inline-block;margin-top:16px;padding:10px 14px;border-left:4px solid var(--amber);background:var(--paper);border-radius:0 10px 10px 0;font-size:14px;color:var(--ink);box-shadow:var(--sh)}
+.hero svg{width:100%;height:auto;max-width:100%}
+
+/* ---------- sticky road ---------- */
+.rail{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);padding:10px 0 8px;border-bottom:1px solid var(--line)}
+.rail .track{position:relative;height:46px}
+.rail .asphalt{position:absolute;left:0;right:0;top:22px;height:6px;background:var(--road);border-radius:3px}
+.rail .asphalt:after{content:"";position:absolute;left:0;right:0;top:2px;height:2px;background:repeating-linear-gradient(90deg,var(--road-dash) 0 10px,transparent 10px 20px)}
+.rail .st{position:absolute;top:14px;width:22px;height:22px;margin-left:-11px;border-radius:50%;background:var(--paper);border:3px solid var(--road);display:flex;align-items:center;justify-content:center;font:700 10px var(--mono);color:var(--ink);cursor:pointer;transition:background .3s,border-color .3s,color .3s}
+.rail .st.done{background:var(--teal);border-color:var(--teal);color:#fff}
+.rail .st.cur{background:var(--amber);border-color:var(--amber);color:#fff;transform:scale(1.18)}
+.rail .st.open{border-style:dashed;border-color:var(--open)}
+.rail .truck{position:absolute;top:-2px;width:44px;height:28px;margin-left:-22px;transition:left .25s ease-out}
+.rail .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);margin-top:2px}
+.rail .lbl b{color:var(--ink)}
+
+/* ---------- slices ---------- */
+.road{position:relative;margin-top:28px}
+.road:before{content:"";position:absolute;left:19px;top:0;bottom:0;width:4px;background:var(--road);opacity:.18;border-radius:2px}
+.slice{position:relative;padding-left:56px;margin-bottom:34px}
+.slice .pin{position:absolute;left:0;top:18px;width:42px;height:42px;border-radius:50%;background:var(--paper);border:4px solid var(--road);display:flex;align-items:center;justify-content:center;font:900 15px var(--display);color:var(--ink);box-shadow:var(--sh);transition:background .4s,border-color .4s,color .4s}
+.slice.in .pin{background:var(--amber);border-color:var(--amber);color:#fff}
+.slice.open-slice .pin{border-style:dashed;border-color:var(--open)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
+.card .head{display:flex;gap:14px;align-items:flex-start;padding:18px 22px 6px;flex-wrap:wrap}
+.card .head h2{font-size:26px;font-weight:700;line-height:1.1}
+.card .head .meta{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:99px;padding:4px 10px;white-space:nowrap}
+.chip.wk{background:var(--teal-soft);color:var(--teal)}
+.chip.spine{background:var(--amber-soft);color:var(--amber)}
+.chip.open{background:var(--open-soft);color:var(--open);border:1px dashed var(--open)}
+.chip.mod{background:var(--paper2);color:var(--mute);border:1px solid var(--line)}
+.card .why{padding:0 22px 14px;font-size:14.5px;max-width:78ch}
+.card .body{display:grid;grid-template-columns:380px 1fr;gap:0;border-top:1px solid var(--line)}
+.art{background:var(--paper2);border-right:1px solid var(--line);padding:18px;display:flex;align-items:center;justify-content:center;min-width:0}
+.art svg{width:100%;height:auto;max-width:340px;display:block}
+.text{padding:18px 22px;min-width:0}
+.text h3{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-family:var(--sans);font-weight:700;margin:14px 0 6px}
+.text h3:first-child{margin-top:0}
+.build{display:flex;flex-wrap:wrap;gap:6px}
+.build span{background:var(--paper2);border:1px solid var(--line);border-radius:8px;padding:4px 9px;font-size:12.5px;color:var(--ink)}
+.runs{list-style:none;counter-reset:run}
+.runs li{position:relative;padding:6px 0 6px 58px;border-top:1px dashed var(--line);font-size:14px}
+.runs li:first-child{border-top:none}
+.runs li:before{counter-increment:run;content:"Run " counter(run);position:absolute;left:0;top:7px;font:600 11px var(--mono);color:var(--teal);background:var(--teal-soft);border-radius:6px;padding:2px 6px}
+.runs li b{color:var(--ink)}
+.test{margin-top:14px;border-radius:12px;padding:12px 14px;background:var(--ok-soft);border:1px solid color-mix(in srgb,var(--ok) 35%,transparent);font-size:14px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.test .k{font:700 11px var(--mono);letter-spacing:.08em;color:var(--ok);text-transform:uppercase;padding-top:3px}
+.test .k.md{color:var(--amber)}
+.test.openbox{background:var(--open-soft);border-color:color-mix(in srgb,var(--open) 45%,transparent)}
+.test.openbox .k{color:var(--open)}
+.menus{margin:12px 0 2px;border:1px solid var(--line);border-radius:12px;background:var(--paper2);padding:10px 12px}
+.menus .k{font:700 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--teal);display:block;margin-bottom:6px}
+.menus .k.own{color:var(--amber)}
+.menus .m{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.menus .m:last-child{margin-bottom:0}
+.menus .m span{font-size:12px;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:7px;padding:3px 8px}
+.menus .m span b{color:var(--teal);font-weight:700}
+.menus .m span.own b{color:var(--amber)}
+.menus .m span.later{color:var(--mute);border-style:dashed}
+.menus .m span.later b{color:var(--mute)}
+.chip.own{background:var(--amber-soft);color:var(--amber)}
+.gantt .bar.own{background:var(--amber)}
+.notyet{margin-top:10px;font-size:12.5px;color:var(--mute)}
+.notyet b{color:var(--mute)}
+
+/* ---------- closing ---------- */
+.close{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.close .card{padding:20px 22px}
+.close h2{font-size:22px;margin-bottom:8px}
+.close ul{margin-left:18px;font-size:14.5px}
+.close li{margin:5px 0}
+.gantt{margin-top:18px;background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);padding:18px 22px;overflow-x:auto}
+.gantt table{border-collapse:collapse;width:100%;min-width:720px;font-size:12.5px}
+.gantt th{text-align:left;color:var(--mute);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line)}
+.gantt td{padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.gantt .bar{height:14px;border-radius:7px;background:var(--teal)}
+.gantt .bar.open{background:repeating-linear-gradient(90deg,var(--open) 0 8px,var(--open-soft) 8px 14px)}
+.gantt .bar.spine{background:var(--amber)}
+footer{margin-top:36px;font-size:12px;color:var(--mute);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+/* ---------- SVG animation ---------- */
+.art svg text{font-family:var(--mono);fill:var(--ink)}
+.art svg .ink{fill:var(--ink)}.art svg .mute{fill:var(--mute)}.art svg .paper{fill:var(--paper)}.art svg .line{stroke:var(--line)}
+.art svg .amber{fill:var(--amber)}.art svg .teal{fill:var(--teal)}.art svg .ok{fill:var(--ok)}.art svg .bad{fill:var(--bad)}.art svg .open{fill:var(--open)}
+.art svg .box{fill:var(--paper);stroke:var(--ink);stroke-width:1.6}
+.art svg .cont{fill:var(--amber);stroke:var(--ink);stroke-width:1.4}
+@keyframes a1lens{0%,20%{transform:translateX(0)}50%,70%{transform:translateX(150px)}100%{transform:translateX(0)}}
+@keyframes a1fade{0%,20%{opacity:1}50%,70%{opacity:.18}100%{opacity:1}}
+@keyframes a1fade2{0%,20%{opacity:.18}50%,70%{opacity:1}100%{opacity:.18}}
+@keyframes type{0%{width:0}35%,100%{width:120px}}
+@keyframes rowin{0%,30%{opacity:0;transform:translateX(-14px)}45%,100%{opacity:1;transform:translateX(0)}}
+@keyframes rowin2{0%,45%{opacity:0;transform:translateX(-14px)}60%,100%{opacity:1;transform:translateX(0)}}
+@keyframes rowin3{0%,60%{opacity:0;transform:translateX(-14px)}75%,100%{opacity:1;transform:translateX(0)}}
+@keyframes badok{0%,74%{opacity:0}78%,100%{opacity:1}}
+@keyframes split1{0%,25%{transform:translate(0,0);opacity:0}30%{opacity:1}60%,100%{transform:translate(-105px,96px);opacity:1}}
+@keyframes split2{0%,25%{transform:translate(0,0);opacity:0}30%{opacity:1}60%,100%{transform:translate(0,96px);opacity:1}}
+@keyframes split3{0%,25%{transform:translate(0,0);opacity:0}30%{opacity:1}60%,100%{transform:translate(105px,96px);opacity:1}}
+@keyframes billshake{0%,20%{transform:translateY(0)}25%{transform:translateY(-4px)}30%{transform:translateY(0)}100%{transform:translateY(0)}}
+@keyframes board{0%,8%{transform:translateX(0)}16%,24%{transform:translateX(54px)}32%,40%{transform:translateX(108px)}48%,56%{transform:translateX(162px)}64%,72%{transform:translateX(216px)}80%,100%{transform:translateX(270px)}}
+@keyframes flagrw{0%,44%{opacity:1}50%,100%{opacity:0}}
+@keyframes flagtz{0%,44%{opacity:0}50%,100%{opacity:1}}
+@keyframes tap1{0%,10%{r:0;opacity:.7}30%{r:26;opacity:0}100%{r:0;opacity:0}}
+@keyframes tap2{0%,35%{r:0;opacity:.7}55%{r:26;opacity:0}100%{r:0;opacity:0}}
+@keyframes tap3{0%,60%{r:0;opacity:.7}80%{r:26;opacity:0}100%{r:0;opacity:0}}
+@keyframes sel1{0%,12%{fill:var(--paper)}20%,100%{fill:var(--amber-soft)}}
+@keyframes sel2{0%,37%{fill:var(--paper)}45%,100%{fill:var(--amber-soft)}}
+@keyframes sel3{0%,62%{fill:var(--paper)}70%,100%{fill:var(--amber-soft)}}
+@keyframes savebtn{0%,80%{fill:var(--mute);opacity:.35}88%,100%{fill:var(--ok);opacity:1}}
+@keyframes state1{0%,10%{fill:var(--line)}15%,100%{fill:var(--teal)}}
+@keyframes state2{0%,30%{fill:var(--line)}35%,100%{fill:var(--teal)}}
+@keyframes state3{0%,50%{fill:var(--line)}55%,100%{fill:var(--teal)}}
+@keyframes state4{0%,70%{fill:var(--line)}75%,100%{fill:var(--ink)}}
+@keyframes dup{0%,55%{transform:translate(0,0);opacity:0}60%{opacity:1}75%{transform:translate(0,0)}80%{transform:translate(-10px,0)}92%,100%{transform:translate(70px,-58px);opacity:1}}
+@keyframes trail1{0%{stroke-dashoffset:260}40%,100%{stroke-dashoffset:0}}
+@keyframes trail2{0%,15%{stroke-dashoffset:260}55%,100%{stroke-dashoffset:0}}
+@keyframes cmp{0%,58%{opacity:0}65%,100%{opacity:1}}
+@keyframes flag{0%,70%{opacity:0;transform:scale(.6)}78%,100%{opacity:1;transform:scale(1)}}
+@keyframes fly1{0%,10%{transform:translate(0,0)}35%,100%{transform:translate(118px,-10px)}}
+@keyframes fly2{0%,25%{transform:translate(0,0)}50%,100%{transform:translate(118px,-26px)}}
+@keyframes fly3{0%,40%{transform:translate(0,0)}65%,100%{transform:translate(118px,-42px)}}
+@keyframes stamp{0%,78%{opacity:0;transform:rotate(-12deg) scale(1.4)}85%,100%{opacity:1;transform:rotate(-12deg) scale(1)}}
+@keyframes dig1{0%,15%{opacity:0}25%,100%{opacity:1}}
+@keyframes dig2{0%,30%{opacity:0}40%,100%{opacity:1}}
+@keyframes dig3{0%,45%{opacity:0}55%,100%{opacity:1}}
+@keyframes dig4{0%,60%{opacity:0}70%,100%{opacity:1}}
+@keyframes ring{0%,10%{transform:rotate(0)}12%{transform:rotate(12deg)}14%{transform:rotate(-12deg)}16%{transform:rotate(10deg)}18%{transform:rotate(-8deg)}20%,100%{transform:rotate(0)}}
+@keyframes ringfade{0%,55%{opacity:1}75%,100%{opacity:.15}}
+@keyframes flow{0%{stroke-dashoffset:120}100%{stroke-dashoffset:0}}
+@keyframes brick{0%,50%{opacity:.25}70%,100%{opacity:1}}
+.an{animation-duration:7s;animation-iteration-count:infinite;animation-timing-function:ease-in-out;animation-fill-mode:both}
+.a1lens{animation-name:a1lens}.a1fade{animation-name:a1fade}.a1fade2{animation-name:a1fade2}
+.type{animation-name:type}.rowin{animation-name:rowin}.rowin2{animation-name:rowin2}.rowin3{animation-name:rowin3}.badok{animation-name:badok}
+.split1{animation-name:split1}.split2{animation-name:split2}.split3{animation-name:split3}.billshake{animation-name:billshake}
+.board{animation-name:board;animation-duration:12s}.flagrw{animation-name:flagrw;animation-duration:12s}.flagtz{animation-name:flagtz;animation-duration:12s}
+.tap1{animation-name:tap1}.tap2{animation-name:tap2}.tap3{animation-name:tap3}.sel1{animation-name:sel1}.sel2{animation-name:sel2}.sel3{animation-name:sel3}.savebtn{animation-name:savebtn}
+.state1{animation-name:state1}.state2{animation-name:state2}.state3{animation-name:state3}.state4{animation-name:state4}.dup{animation-name:dup}
+.trail1{animation-name:trail1;stroke-dasharray:260;stroke-dashoffset:260}.trail2{animation-name:trail2;stroke-dasharray:260;stroke-dashoffset:260}.cmp{animation-name:cmp}.flag{animation-name:flag;transform-origin:center;transform-box:fill-box}
+.fly1{animation-name:fly1}.fly2{animation-name:fly2}.fly3{animation-name:fly3}.stamp{animation-name:stamp;transform-origin:center;transform-box:fill-box}
+.dig1{animation-name:dig1}.dig2{animation-name:dig2}.dig3{animation-name:dig3}.dig4{animation-name:dig4}.ring{animation-name:ring;transform-origin:center;transform-box:fill-box}.ringfade{animation-name:ringfade}
+.flow{animation-name:flow;stroke-dasharray:8 6;animation-duration:2.4s;animation-timing-function:linear}.brick{animation-name:brick}
+@media (prefers-reduced-motion: reduce){.an{animation:none!important}.rail .truck{transition:none}}
+@media (max-width:900px){.hero{grid-template-columns:1fr}.card .body{grid-template-columns:1fr}.art{border-right:none;border-bottom:1px solid var(--line)}.close{grid-template-columns:1fr}}
+@media (max-width:560px){.slice{padding-left:44px}.slice .pin{width:34px;height:34px;font-size:13px;left:2px}.road:before{left:17px}.card .head h2{font-size:22px}.rail .lbl span:nth-child(2){display:none}}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div>
+    <div class="eyebrow">Corridor MIS · build road · one feature at a time</div>
+    <h1>Twelve slices. Each one used by real people before the next is started.</h1>
+    <p>The system in the analysis is large. The way to build it without drowning a developer is to treat it like the corridor itself: one station at a time, a test at each gate, and the container does not move on until the gate is passed. Every slice below says what gets built, which menus of the mockup it switches on, the runs the developer walks through with real OLIU data, the test that must pass, and what the Managing Director sees when it does. The owner portal, for you, comes in two stages at the end, when there is a second and a third account to justify it.</p>
+    <div class="rule">Rule of the road: a slice is finished when staff have used it on live bookings for a week, the test passed, the security checklist ran, and its slice note is written. Not when the code is written.</div>
+  </div>
+  <svg viewBox="0 0 420 300" aria-label="A container travels a road with ten gates">
+    <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--teal)" stop-opacity=".18"/><stop offset="1" stop-color="var(--teal)" stop-opacity="0"/></linearGradient></defs>
+    <rect width="420" height="300" rx="18" fill="url(#sky)"/>
+    <path d="M20 250 C 120 250, 110 110, 210 110 S 300 250, 400 250" fill="none" stroke="var(--road)" stroke-width="18" stroke-linecap="round"/>
+    <path d="M20 250 C 120 250, 110 110, 210 110 S 300 250, 400 250" fill="none" stroke="var(--road-dash)" stroke-width="2" stroke-dasharray="10 12" class="an flow"/>
+    <g fill="var(--paper)" stroke="var(--road)" stroke-width="3">
+      <circle cx="60" cy="243" r="9"/><circle cx="110" cy="210" r="9"/><circle cx="150" cy="150" r="9"/><circle cx="210" cy="110" r="9"/><circle cx="270" cy="150" r="9"/><circle cx="310" cy="210" r="9"/><circle cx="360" cy="243" r="9"/>
+    </g>
+    <g class="an" style="animation-name:board;animation-duration:12s">
+      <rect x="28" y="222" width="46" height="26" rx="4" class="cont"/><rect x="31" y="226" width="40" height="3" fill="var(--ink)" opacity=".35"/><rect x="31" y="233" width="40" height="3" fill="var(--ink)" opacity=".35"/>
+      <circle cx="38" cy="251" r="5" fill="var(--ink)"/><circle cx="64" cy="251" r="5" fill="var(--ink)"/>
+    </g>
+    <text x="24" y="40" font-size="12" class="mute" style="font-family:var(--mono)">KIGALI</text>
+    <text x="340" y="40" font-size="12" class="mute" style="font-family:var(--mono)">DAR · VESSEL</text>
+    <text x="178" y="92" font-size="11" class="mute" style="font-family:var(--mono)">RUSUMO</text>
+  </svg>
+</header>
+
+<div class="rail" id="rail">
+  <div class="track">
+    <div class="asphalt"></div>
+    <svg class="truck" id="truck" viewBox="0 0 44 28" aria-hidden="true"><rect x="2" y="6" width="30" height="16" rx="3" fill="var(--amber)" stroke="var(--ink)" stroke-width="1.5"/><rect x="32" y="11" width="9" height="11" rx="2" fill="var(--paper)" stroke="var(--ink)" stroke-width="1.5"/><circle cx="10" cy="23" r="4" fill="var(--ink)"/><circle cx="35" cy="23" r="4" fill="var(--ink)"/></svg>
+    <div class="st" style="left:4%" data-i="1">1</div><div class="st" style="left:12.5%" data-i="2">2</div><div class="st" style="left:21.1%" data-i="3">3</div><div class="st" style="left:29.6%" data-i="4">4</div><div class="st" style="left:38.2%" data-i="5">5</div><div class="st" style="left:46.7%" data-i="6">6</div><div class="st open" style="left:55.3%" data-i="7">7</div><div class="st" style="left:63.8%" data-i="8">8</div><div class="st" style="left:72.4%" data-i="9">9</div><div class="st" style="left:80.9%" data-i="10">10</div><div class="st" style="left:89.5%" data-i="11">11</div><div class="st" style="left:98%" data-i="12">12</div>
+  </div>
+  <div class="lbl"><span><b id="railname">Slice 1 · Accounts, companies, roles</b></span><span>one developer · 2 to 3 weeks per slice · slices 11 and 12 are the owner portal · Dar blind entry stays open</span><span class="num" id="railweek">week 1</span></div>
+</div>
+
+<div class="road">
+
+<!-- ========== 1 ========== -->
+<section class="slice" id="s1" data-i="1" data-name="Slice 1 · Accounts, companies, roles" data-week="weeks 1–2">
+  <div class="pin">1</div>
+  <div class="card">
+    <div class="head"><h2>Accounts, companies, roles</h2><div class="meta"><span class="chip spine">Spine</span><span class="chip wk">2 weeks</span></div></div>
+    <p class="why">Everything that comes later is scoped by two questions: which account, which company. Build that first, with nothing inside it, and the rest of the system can never leak across companies by accident.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="A user is attached to one company; the other company fades out">
+        <rect x="10" y="14" width="320" height="30" rx="8" class="box"/><text x="24" y="34" font-size="12">Account · OLIU · JIVAH · Package B</text>
+        <g class="an a1fade"><rect x="20" y="70" width="140" height="130" rx="10" class="box"/><text x="32" y="92" font-size="12" font-weight="700">OLIU · RW</text><rect x="32" y="104" width="116" height="14" rx="4" fill="var(--amber-soft)"/><rect x="32" y="124" width="116" height="14" rx="4" fill="var(--amber-soft)"/><rect x="32" y="144" width="116" height="14" rx="4" fill="var(--amber-soft)"/><text x="36" y="115" font-size="10">containers</text><text x="36" y="135" font-size="10">costs · payments</text><text x="36" y="155" font-size="10">invoices · book</text></g>
+        <g class="an a1fade2"><rect x="180" y="70" width="140" height="130" rx="10" class="box"/><text x="192" y="92" font-size="12" font-weight="700">JIVAH · TZ</text><rect x="192" y="104" width="116" height="14" rx="4" fill="var(--teal-soft)"/><rect x="192" y="124" width="116" height="14" rx="4" fill="var(--teal-soft)"/><rect x="192" y="144" width="116" height="14" rx="4" fill="var(--teal-soft)"/><text x="196" y="115" font-size="10">containers</text><text x="196" y="135" font-size="10">costs · payments</text><text x="196" y="155" font-size="10">own book</text></g>
+        <g class="an a1lens"><circle cx="90" cy="186" r="13" fill="var(--amber)"/><text x="90" y="190" font-size="10" text-anchor="middle" fill="#fff" style="fill:#fff">AU</text><text x="90" y="218" font-size="10" text-anchor="middle">Finance Officer · sees one side</text></g>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Account</span><span>Company (country, currency, TIN, banks)</span><span>Package A or B</span><span>User + six roles</span><span>Role attached to one company or all</span><span>OTP to department mailbox</span><span>Audit trail table</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Settings</b> → User management</span><span class=""><b>Settings</b> → Company & subscription: companies, branch or partner, who bills, hand-over point</span><span class=""><b>Login</b> → OTP to the department mailbox</span></div><span class="k own">Owner portal, same stage</span><div class="m"><span class="own "><b>Owner</b> → Create account: the set-up questions, nothing else</span></div><div style="font-size:12px;color:var(--mute);margin-top:6px">The owner portal at this stage is one form you use yourself to create OLIU · JIVAH. No tenant list, no billing. It is the same set-up screen the tenant later sees under Settings.</div></div>
+        <h3>Runs the developer walks through</h3>
+        <ol class="runs">
+          <li><b>Create the account.</b> Answer the set-up questions: two companies, OLIU bills the client, hand-over at Rusumo. Nothing else is asked yet.</li>
+          <li><b>Invite twelve people.</b> Each gets one role and one company; the MD gets all. OTP arrives at finance@, ops@, management@.</li>
+          <li><b>Sign in as each person.</b> The sidebar shows only the empty menus their role may open. A JIVAH login never sees the OLIU company in the switcher.</li>
+          <li><b>Suspend one user.</b> Their next sign-in is refused and the attempt is in the audit trail.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>Twelve logins, each scoped correctly, and the audit trail shows every sign-in. A single-company test account shows no switcher at all.</span><span class="k md">MD sees</span><span>Their own login on the phone, the company switcher, and a list of who has access. Nothing else exists yet, and that is correct.</span></div>
+        <p class="notyet"><b>Not built yet:</b> no bookings, no containers, no money. Resist adding a screen "while we are here".</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 2 ========== -->
+<section class="slice" id="s2" data-i="2" data-name="Slice 2 · Booking and container" data-week="weeks 3–4">
+  <div class="pin">2</div>
+  <div class="card">
+    <div class="head"><h2>Booking and container</h2><div class="meta"><span class="chip spine">Spine</span><span class="chip wk">2 weeks</span></div></div>
+    <p class="why">The container is the unit of truth. This slice makes it impossible to type the same number twice with two meanings, which is the slip that reaches the Excel file today.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="A booking number is typed, container rows appear and are checked">
+        <rect x="14" y="14" width="312" height="44" rx="8" class="box"/><text x="26" y="31" font-size="9" class="mute">SHIPPING LINE · CMA CGM → expects 4 letters + 7 digits</text>
+        <rect x="26" y="37" width="120" height="14" fill="var(--amber-soft)" class="an type"/><text x="30" y="48" font-size="11" font-weight="700">CMDU4471023</text>
+        <g class="an rowin"><rect x="14" y="74" width="312" height="34" rx="8" class="box"/><text x="26" y="95" font-size="12">PCIU 9084297 · 40FT · tantalite</text><circle cx="306" cy="91" r="9" class="ok"/><text x="306" y="95" font-size="10" text-anchor="middle" style="fill:#fff">✓</text></g>
+        <g class="an rowin2"><rect x="14" y="116" width="312" height="34" rx="8" class="box"/><text x="26" y="137" font-size="12">TCLU 1234565 · 40FT · tantalite</text><circle cx="306" cy="133" r="9" class="ok"/><text x="306" y="137" font-size="10" text-anchor="middle" style="fill:#fff">✓</text></g>
+        <g class="an rowin3"><rect x="14" y="158" width="312" height="34" rx="8" class="box"/><text x="26" y="179" font-size="12">MSKU 6011241 · check digit says typo</text><circle cx="306" cy="175" r="9" class="bad"/><text x="306" y="179" font-size="10" text-anchor="middle" style="fill:#fff">✗</text></g>
+        <g class="an badok"><text x="26" y="214" font-size="10" class="mute">ISO 6346 expected …0 · corrected before it ever reaches the board</text></g>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Shipping line list with number formats</span><span>Booking</span><span>Container (ISO 6346 check digit, unique system-wide)</span><span>Client</span><span>Cargo and size</span><span>Status: booked</span><span>Duplicate container → MD queue stub</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Shipments</b> → New booking</span><span class=""><b>Shipments</b> → Containers: the list, not yet the board</span></div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Re-enter the two October invoices as bookings.</b> Space Mining, 12 boxes on KOTA SETIA; Transvera, 6 boxes. Lot numbers and sizes as on the paper.</li>
+          <li><b>Type a container with a wrong check digit.</b> The field says what the digit should be and will not save.</li>
+          <li><b>Enter a container that already exists on another booking.</b> It is not rejected and not accepted: both entries go side by side to the MD.</li>
+          <li><b>Look up a box by number from the JIVAH login.</b> It is found, read-only, with its booking and client.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>Eighteen real containers are in the system with no retyping, one wrong digit was caught, and one duplicate reached the MD with both records shown.</span><span class="k md">MD sees</span><span>A list of this month's bookings and boxes, searchable by number, from the phone.</span></div>
+        <p class="notyet"><b>Not built yet:</b> no costs, no stages, no legs. A booking is a list of boxes and nothing more.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 3 ========== -->
+<section class="slice" id="s3" data-i="3" data-name="Slice 3 · Cost entry and split" data-week="weeks 5–6">
+  <div class="pin">3</div>
+  <div class="card">
+    <div class="head"><h2>Cost entry and the split</h2><div class="meta"><span class="chip spine">Spine</span><span class="chip wk">2 weeks</span></div></div>
+    <p class="why">This is the slice that answers "what did this box cost". Nothing is ever entered as a bare number: booking first, then its containers appear, and a shared invoice divides across the boxes it covered.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="One transport invoice splits into three equal amounts on three containers">
+        <g class="an billshake"><rect x="125" y="14" width="90" height="56" rx="6" class="box"/><text x="135" y="32" font-size="9" class="mute">SIMBA HAULAGE</text><text x="135" y="50" font-size="13" font-weight="700">RWF 1,909,000</text><text x="135" y="63" font-size="9" class="mute">3 boxes · one invoice</text></g>
+        <g class="an split1"><rect x="140" y="80" width="60" height="22" rx="11" class="amber"/><text x="170" y="95" font-size="10" text-anchor="middle" style="fill:#fff">636,333</text></g>
+        <g class="an split2"><rect x="140" y="80" width="60" height="22" rx="11" class="amber"/><text x="170" y="95" font-size="10" text-anchor="middle" style="fill:#fff">636,333</text></g>
+        <g class="an split3"><rect x="140" y="80" width="60" height="22" rx="11" class="amber"/><text x="170" y="95" font-size="10" text-anchor="middle" style="fill:#fff">636,334</text></g>
+        <g><rect x="30" y="150" width="70" height="40" rx="5" class="cont"/><text x="65" y="174" font-size="9" text-anchor="middle" style="fill:#fff">PCIU 9084297</text></g>
+        <g><rect x="135" y="150" width="70" height="40" rx="5" class="cont"/><text x="170" y="174" font-size="9" text-anchor="middle" style="fill:#fff">TCLU 1234565</text></g>
+        <g><rect x="240" y="150" width="70" height="40" rx="5" class="cont"/><text x="275" y="174" font-size="9" text-anchor="middle" style="fill:#fff">MSKU 6011240</text></g>
+        <text x="170" y="216" font-size="10" text-anchor="middle" class="mute">booking total = sum of the boxes, never stored</text>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Cost entry (container, category, amount, currency, paid to, entered by)</span><span>Category list</span><span>Currency and daily rate</span><span>Split: equal, by weight, manual</span><span>Container cost total as a query</span><span>Company tag from the container's side</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Shipments</b> → Container record: cost lines</span><span class=""><b>Shipments</b> → Cost & split</span><span class=""><b>Settings</b> → Configuration: cost categories, currencies and rates</span></div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Enter one clearing fee on one box.</b> It shows on that container in RWF and in USD at the day's rate.</li>
+          <li><b>Enter one truck invoice for three boxes.</b> Pick the booking, tick three containers, type the total once. Three cost lines appear, one per box.</li>
+          <li><b>Correct one split line.</b> The booking total changes because it is a sum, not a stored figure.</li>
+          <li><b>Rebuild PCIU 9084297 from the mockup.</b> Nine lines, USD 4,750.93, each line's rate at its own date.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>Operations staff have entered a week of real costs without a spreadsheet, and the sum per container matches what the Finance Officer computes by hand for three boxes.</span><span class="k md">MD sees</span><span>"How much did this container cost?" answered on the phone, today, for every open box.</span></div>
+        <p class="notyet"><b>Not built yet:</b> no payments, no approvals. A cost line records that money was spent, not that the company paid it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 4 ========== -->
+<section class="slice" id="s4" data-i="4" data-name="Slice 4 · Journey stages and hand-over" data-week="weeks 7–9">
+  <div class="pin">4</div>
+  <div class="card">
+    <div class="head"><h2>Journey stages and the hand-over</h2><div class="meta"><span class="chip mod">Module</span><span class="chip wk">3 weeks</span></div></div>
+    <p class="why">The board replaces the morning round of calls. Each stage is its own fields, not a note. At Rusumo the responsible company flips from OLIU to JIVAH, and that one flip moves the box between working lists and decides which book its costs go to.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="A container moves across six board columns and its flag changes from Rwanda to Tanzania at Rusumo">
+        <g font-size="8" class="mute">
+          <rect x="10" y="30" width="48" height="150" rx="6" fill="var(--paper)" stroke="var(--line)"/><text x="14" y="24">BOOKED</text>
+          <rect x="64" y="30" width="48" height="150" rx="6" fill="var(--paper)" stroke="var(--line)"/><text x="68" y="24">LOADED</text>
+          <rect x="118" y="30" width="48" height="150" rx="6" fill="var(--amber-soft)" stroke="var(--amber)"/><text x="120" y="24">RUSUMO</text>
+          <rect x="172" y="30" width="48" height="150" rx="6" fill="var(--paper)" stroke="var(--line)"/><text x="180" y="24">ICD</text>
+          <rect x="226" y="30" width="48" height="150" rx="6" fill="var(--paper)" stroke="var(--line)"/><text x="234" y="24">PORT</text>
+          <rect x="280" y="30" width="48" height="150" rx="6" fill="var(--paper)" stroke="var(--line)"/><text x="282" y="24">VESSEL</text>
+        </g>
+        <g class="an board"><rect x="16" y="90" width="36" height="24" rx="4" class="cont"/><text x="34" y="106" font-size="7" text-anchor="middle" style="fill:#fff">PCIU</text>
+          <g class="an flagrw"><rect x="16" y="78" width="36" height="10" rx="3" class="teal"/><text x="34" y="86" font-size="7" text-anchor="middle" style="fill:#fff">OLIU</text></g>
+          <g class="an flagtz"><rect x="16" y="78" width="36" height="10" rx="3" class="amber"/><text x="34" y="86" font-size="7" text-anchor="middle" style="fill:#fff">JIVAH</text></g></g>
+        <text x="20" y="205" font-size="10" class="mute">Kigali list ← </text><text x="150" y="205" font-size="10" class="mute">flip</text><text x="200" y="205" font-size="10" class="mute">→ Dar list · JIVAH book</text>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Stage per container (8 stages, configurable)</span><span>Board view</span><span>Hand-over stage from set-up</span><span>Responsible company flip</span><span>Working list per company</span><span>Release sign-off on pre-selected boxes</span><span>Delay flag at ICD after N days</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Shipments</b> → Containers: the six-column board</span><span class=""><b>Shipments</b> → Journey stages</span><span class=""><b>Shipments</b> → Release</span><span class=""><b>Shipments</b> → Handoff to Finance</span><span class="later"><b>Shipments</b> → Transport leg</span></div><div style="font-size:12px;color:var(--mute);margin-top:6px">Transport leg stays off: a stage can be confirmed without naming the truck. Legs, breakdowns and the replacement-leg gate are their own slice after import.</div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Move one box stage by stage.</b> Confirm each stage from the Kigali login until Rusumo.</li>
+          <li><b>Confirm Rusumo.</b> The box leaves the Kigali working list and appears on Dar's. Its flag reads JIVAH. A cost entered now lands in JIVAH's book by default.</li>
+          <li><b>Release a booking.</b> Boxes whose status has reached the stage are pre-selected; one still at Magerwa is not, and stays behind without anyone unticking it.</li>
+          <li><b>Leave a box at ICD past the set days.</b> The at-risk flag appears and a cost entered now is tagged delay-related.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>Kigali and Dar staff each see only their side of a live booking, the flip happened on a real crossing, and the MD's board matches the WhatsApp group for a full week.</span><span class="k md">MD sees</span><span>Every container in motion on one board, by stage, by company, from the phone.</span></div>
+        <p class="notyet"><b>Not built yet:</b> transport legs, trucks and drivers come later as their own slice. A stage can be confirmed without a leg behind it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 5 ========== -->
+<section class="slice" id="s5" data-i="5" data-name="Slice 5 · Tip entry on the phone" data-week="weeks 10–11">
+  <div class="pin">5</div>
+  <div class="card">
+    <div class="head"><h2>Facilitation payments, three taps</h2><div class="meta"><span class="chip mod">Module</span><span class="chip wk">2 weeks</span></div></div>
+    <p class="why">The fastest screen in the system, because it is used standing up, under pressure, with no signal. A two-minute form would simply stop being used, and the control in slice 7 depends on every tip being logged.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="A phone screen: three taps select a container, a reason and an amount, then save">
+        <rect x="95" y="8" width="150" height="214" rx="16" fill="var(--ink)"/><rect x="103" y="18" width="134" height="194" rx="10" fill="var(--paper)"/>
+        <rect x="111" y="28" width="56" height="34" rx="6" class="an sel1" stroke="var(--line)"/><text x="139" y="43" font-size="7" text-anchor="middle">PCIU 9084297</text><text x="139" y="54" font-size="6" text-anchor="middle" class="mute">Rusumo</text>
+        <rect x="173" y="28" width="56" height="34" rx="6" fill="var(--paper)" stroke="var(--line)"/><text x="201" y="43" font-size="7" text-anchor="middle">TCLU 1234565</text>
+        <circle cx="139" cy="45" class="an tap1" fill="var(--amber)"/>
+        <rect x="111" y="74" width="54" height="20" rx="10" class="an sel2" stroke="var(--line)"/><text x="138" y="87" font-size="7" text-anchor="middle">Weighbridge</text>
+        <rect x="171" y="74" width="58" height="20" rx="10" fill="var(--paper)" stroke="var(--line)"/><text x="200" y="87" font-size="7" text-anchor="middle">Checkpoint</text>
+        <circle cx="138" cy="84" class="an tap2" fill="var(--amber)"/>
+        <rect x="111" y="106" width="118" height="30" rx="6" class="an sel3" stroke="var(--line)"/><text x="221" y="126" font-size="13" text-anchor="end" font-weight="700">20,000</text><text x="116" y="126" font-size="7" class="mute">RWF</text>
+        <circle cx="170" cy="121" class="an tap3" fill="var(--amber)"/>
+        <rect x="111" y="150" width="118" height="26" rx="8" class="an savebtn"/><text x="170" y="167" font-size="9" text-anchor="middle" style="fill:#fff" font-weight="700">Save · 3 of 3</text>
+        <text x="170" y="196" font-size="7" text-anchor="middle" class="mute">offline · will sync · cap left today 80,000</text>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Phone screen, installable</span><span>Booking remembered from last entry</span><span>Reason buttons (configurable)</span><span>Split across tapped boxes</span><span>Per-tip ceiling, monthly cap, 80 % and 100 % alerts</span><span>Payee type and MoMo / M-Pesa ID</span><span>Offline outbox</span><span>Complete-later screen</span><span>Tip ledger</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Field payments</b> → Tip entry</span><span class=""><b>Field payments</b> → Complete tip</span><span class=""><b>Settings</b> → Configuration: tip reasons, per-tip ceiling, monthly cap</span></div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Log a tip in three taps</b> with the phone in flight mode. It saves. Turn data on: it syncs and appears in the ledger.</li>
+          <li><b>Tap two containers, one amount.</b> Two tip lines appear, split, each on its own box.</li>
+          <li><b>Reach 80 % of the monthly cap.</b> The MD gets an alert. At 100 % the save needs the MD's code.</li>
+          <li><b>Come back later</b> and attach the receipt photo and the checkpoint tag to yesterday's tip.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>The Field Officer has logged a week of real tips without a WhatsApp message, more than 95 % carry a payee ID, and the cap alert fired once for real.</span><span class="k md">MD sees</span><span>The tip ledger by person and by box, and cash in staff hands as a live figure.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 6 ========== -->
+<section class="slice" id="s6" data-i="6" data-name="Slice 6 · Payments" data-week="weeks 12–14">
+  <div class="pin">6</div>
+  <div class="card">
+    <div class="head"><h2>Payments: request, approve, pay, lock</h2><div class="meta"><span class="chip mod">Module</span><span class="chip wk">3 weeks</span></div></div>
+    <p class="why">Every payment is a fixed state. Nothing is paid without one-click approval, a paid order locks, and the same box plus category plus beneficiary is refused a second time and sent to the MD instead.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="Four payment states light up in turn; a duplicate request bounces to the MD queue">
+        <line x1="40" y1="90" x2="300" y2="90" stroke="var(--line)" stroke-width="4"/>
+        <circle cx="40" cy="90" r="14" class="an state1"/><circle cx="127" cy="90" r="14" class="an state2"/><circle cx="214" cy="90" r="14" class="an state3"/><circle cx="300" cy="90" r="14" class="an state4"/>
+        <g font-size="9" text-anchor="middle"><text x="40" y="118">requested</text><text x="127" y="118">approved · OTP</text><text x="214" y="118">paid</text><text x="300" y="118">locked</text></g>
+        <rect x="236" y="14" width="92" height="30" rx="8" class="box" stroke-dasharray="4 3"/><text x="282" y="33" font-size="9" text-anchor="middle">MD queue</text>
+        <g class="an dup"><rect x="150" y="150" width="130" height="34" rx="8" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="215" y="165" font-size="8" text-anchor="middle">MSKU 6011240 · clearing · Magerwa</text><text x="215" y="177" font-size="8" text-anchor="middle" class="bad">already paid 21 Aug — blocked</text></g>
+        <text x="40" y="205" font-size="10" class="mute">one beneficiary + one box + one category = paid once</text>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Beneficiary with protected account (four-eyes on change)</span><span>Payment request from a cost line or a tip</span><span>Approve with MFA above threshold</span><span>Pay and lock</span><span>Duplicate block → MD queue</span><span>Floats and settlement</span><span>Office expenses through the same queue</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Payments</b> → Needs payment: approval queue</span><span class=""><b>Payments</b> → Pay — Finance Officer</span><span class=""><b>Payments</b> → Beneficiaries</span><span class=""><b>Checks</b> → MD queue: duplicate container, repeat payment</span><span class=""><b>Settings</b> → Configuration: approval thresholds, MFA</span></div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Request payment for a clearing fee.</b> Operations Manager approves with one click; above the threshold the code arrives at the department mailbox.</li>
+          <li><b>Pay it.</b> The order locks. It cannot be edited by anyone, including the MD.</li>
+          <li><b>Request the same box, fee and payee again.</b> It is blocked and lands in the MD queue with both orders attached.</li>
+          <li><b>Change a beneficiary's bank account.</b> It waits for a second person before any payment can use it.</li>
+          <li><b>Settle a float.</b> The cash-in-hands figure drops the moment the settlement is approved.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>A month of real payments ran through the queue, every paid order is locked, one duplicate was caught before the bank, and no payment exists without an approval.</span><span class="k md">MD sees</span><span>Approvals waiting on the phone, cash out this month, and the first blocked duplicate.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 7 ========== -->
+<section class="slice open-slice" id="s7" data-i="7" data-name="Slice 7 · Blind entry and compare · Dar side open" data-week="weeks 15–17">
+  <div class="pin">7</div>
+  <div class="card">
+    <div class="head"><h2>Blind Finance entry and the compare job</h2><div class="meta"><span class="chip open">Dar side open</span><span class="chip mod">Module</span><span class="chip wk">3 weeks</span></div></div>
+    <p class="why">The most important control in the system, built only now because both trails must exist first. Finance enters category, beneficiary and amount from the paper in hand, never seeing Operations' figure. A background job compares the two trails and flags a disagreement to the MD. A match is silent.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="Two independent trails meet at a compare node; a mismatch raises a flag; the Tanzania side is drawn dashed and marked open">
+        <text x="20" y="30" font-size="10" font-weight="700">OPERATIONS TRAIL</text><text x="20" y="44" font-size="9" class="mute">J. Habimana · 22 Aug · RWF 1,900,000</text>
+        <text x="20" y="160" font-size="10" font-weight="700">FINANCE TRAIL · blind</text><text x="20" y="174" font-size="9" class="mute">A. Uwase · 27 Aug · RWF 1,909,000</text>
+        <path d="M20 52 C 120 52, 140 100, 200 100" fill="none" stroke="var(--teal)" stroke-width="3" class="an trail1"/>
+        <path d="M20 150 C 120 150, 140 100, 200 100" fill="none" stroke="var(--amber)" stroke-width="3" class="an trail2"/>
+        <circle cx="210" cy="100" r="18" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><text x="210" y="104" font-size="12" text-anchor="middle">⇄</text>
+        <g class="an cmp"><text x="240" y="92" font-size="10">gap RWF 9,000</text><text x="240" y="106" font-size="9" class="mute">nothing auto-corrected</text></g>
+        <g class="an flag"><rect x="238" y="118" width="88" height="24" rx="8" class="bad"/><text x="282" y="134" font-size="9" text-anchor="middle" style="fill:#fff">→ MD rules</text></g>
+        <rect x="14" y="192" width="312" height="28" rx="8" fill="var(--open-soft)" stroke="var(--open)" stroke-dasharray="5 4"/><text x="170" y="210" font-size="9" text-anchor="middle" class="open">DAR SIDE · one person holds both trails · decision pending</text>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Needs-payment queue: container only, no category, no amount</span><span>Finance record (category, beneficiary, amount, from paper)</span><span>Compare job every 15 min</span><span>Flag with both figures, both authors, both times</span><span>MD ruling as third record</span><span>Tolerance as configuration</span><span>"Single trail" marker for a side without blind entry</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Payments</b> → Pay — Finance Officer: blind view</span><span class=""><b>Checks</b> → Reconciliation</span><span class=""><b>Checks</b> → Audit trail</span><span class=""><b>Settings</b> → Configuration: match tolerance</span></div><div style="font-size:12px;color:var(--mute);margin-top:6px">Dar side: lines carry a single-trail marker and show amber on the Reconciliation tab until the MD decides.</div></div>
+        <h3>Runs, Kigali pattern</h3>
+        <ol class="runs">
+          <li><b>Operations enters RWF 1,900,000 for leg 2.</b> The Finance Officer's queue shows only "PCIU 9084297 has a pending item".</li>
+          <li><b>Finance enters RWF 1,909,000 from invoice 5541.</b> She never saw the first figure. The compare job pairs the two lines.</li>
+          <li><b>The flag reaches the MD</b> with both figures. He rules Finance is right; the ruling is stored, neither record is overwritten.</li>
+          <li><b>Enter a matching pair.</b> Nothing happens. Silence is the healthy state.</li>
+        </ol>
+        <div class="test openbox"><span class="k">Dar side</span><span>One person in Dar records both operations and finance today, so the Kigali pattern would report a match by construction. <b>Left open until the MD decides</b> between: Kigali Finance entering Dar's trail from photographed paper; the MD as Dar's second trail; big Dar costs paid by Kigali payment order with only field cash single-trail; or Dar marked single-trail and shown as such. The slice ships for Kigali either way; Dar lines carry the single-trail marker until the decision.</span></div>
+        <div class="test"><span class="k">Pass when</span><span>A deliberate mismatch and a real one were both flagged to the MD within fifteen minutes, matches produced no noise for a week, and the Finance Officer confirms she never saw Operations' figure.</span><span class="k md">MD sees</span><span>The reconciliation flags, both trails side by side, and the first ruling he made as a third record.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 8 ========== -->
+<section class="slice" id="s8" data-i="8" data-name="Slice 8 · Invoices built from departed containers" data-week="weeks 18–19">
+  <div class="pin">8</div>
+  <div class="card">
+    <div class="head"><h2>Invoices, built by the system</h2><div class="meta"><span class="chip mod">Module</span><span class="chip wk">2 weeks</span></div></div>
+    <p class="why">Every column on today's paper invoice already lives in the container record. The system composes the draft from departed boxes; the Finance Officer reviews the rate and issues. Gapless number, PDF, email, no retyping.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="Container rows fly into an invoice sheet, the total appears and a number is stamped">
+        <rect x="160" y="14" width="166" height="200" rx="6" class="box"/><text x="172" y="34" font-size="9" font-weight="700">BILLING INVOICE</text><text x="172" y="46" font-size="7" class="mute">OLIU LOGISTICS LTD · TIN 120126551</text>
+        <g font-size="7" class="mute"><text x="172" y="66">DEP</text><text x="200" y="66">VESSEL</text><text x="240" y="66">CNR №</text><text x="300" y="66">USD</text></g>
+        <g class="an fly1"><rect x="20" y="84" width="120" height="16" rx="4" class="cont"/><text x="26" y="95" font-size="7" style="fill:#fff">FFAU 8028326 · 40FT · 3,600</text></g>
+        <g class="an fly2"><rect x="20" y="118" width="120" height="16" rx="4" class="cont"/><text x="26" y="129" font-size="7" style="fill:#fff">PCIU 9320936 · 40FT · 3,600</text></g>
+        <g class="an fly3"><rect x="20" y="152" width="120" height="16" rx="4" class="cont"/><text x="26" y="163" font-size="7" style="fill:#fff">PIDU 4544108 · 40FT · 3,600</text></g>
+        <text x="172" y="140" font-size="7" class="mute">… 9 more departed boxes</text>
+        <rect x="168" y="160" width="150" height="18" fill="var(--amber-soft)"/><text x="172" y="173" font-size="8" font-weight="700">AMOUNT TO BE PAID · USD 43,200</text>
+        <text x="172" y="196" font-size="7" class="mute">Equity · I&amp;M · BK · Kamukama Liliose</text>
+        <g class="an stamp"><rect x="226" y="180" width="92" height="26" rx="4" fill="none" stroke="var(--bad)" stroke-width="2"/><text x="272" y="197" font-size="9" text-anchor="middle" class="bad" font-weight="700">KGLDAR-2026-0187</text></g>
+        <text x="20" y="40" font-size="10" font-weight="700">departed, not invoiced</text><text x="20" y="54" font-size="9" class="mute">12 boxes · KOTA SETIA · ETD 13 Oct</text>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Rate card per client, size, route</span><span>Draft AR invoice from departed boxes</span><span>Issue gate: departed and costs covered</span><span>Gapless numbering with prefix</span><span>PDF in the current layout</span><span>Email to client</span><span>AP invoices</span><span>Aged receivables, 7 / 30 / 45 day alerts</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Invoices</b> → Invoices & clients: draft built from departed boxes, AR and AP list</span><span class=""><b>Settings</b> → Configuration: invoice prefix, rate cards, client IDs</span><span class=""><b>Settings</b> → Company & subscription: bank blocks and signature that print</span></div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Mark the twelve Space Mining boxes departed.</b> A draft appears with their dep date, vessel, ETD, BL, size and lot, at USD 3,600 each.</li>
+          <li><b>Override one line's rate with a reason.</b> The line is flagged on the draft, not silently accepted.</li>
+          <li><b>Issue.</b> The number is assigned, the PDF matches KGLDAR03102026 column for column, and the email goes to the client.</li>
+          <li><b>Try to edit an issued invoice.</b> Refused; a credit note is the only way.</li>
+          <li><b>Let one invoice pass 30 days.</b> The overdue alert reaches Finance and the MD.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>The system reproduced both October invoices line for line from container data, and the first real invoice went out within two working days of departure.</span><span class="k md">MD sees</span><span>"Departed but not invoiced" at zero, clients owe us by client, and container margin for the first time.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 9 ========== -->
+<section class="slice" id="s9" data-i="9" data-name="Slice 9 · Dashboard, digest, notifications" data-week="weeks 20–21">
+  <div class="pin">9</div>
+  <div class="card">
+    <div class="head"><h2>Dashboard, the 07:00 digest, notifications</h2><div class="meta"><span class="chip mod">Module</span><span class="chip wk">2 weeks</span></div></div>
+    <p class="why">Every figure here is a live query over the slices before it. The bar for a good screen is whether it replaces a phone call. The digest is the dashboard in five lines on WhatsApp.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="Digest lines appear on a phone at 07:00 while a ringing phone fades out">
+        <rect x="30" y="14" width="170" height="200" rx="14" fill="var(--ink)"/><rect x="38" y="24" width="154" height="180" rx="9" fill="var(--paper)"/>
+        <text x="48" y="44" font-size="9" font-weight="700">07:00 · Corridor MIS</text>
+        <g class="an dig1"><rect x="46" y="54" width="138" height="22" rx="6" fill="var(--teal-soft)"/><text x="52" y="68" font-size="8">42 boxes in motion · 8 departed</text></g>
+        <g class="an dig2"><rect x="46" y="82" width="138" height="22" rx="6" fill="var(--bad-soft)"/><text x="52" y="96" font-size="8">Space Mining 45 d overdue · $31,200</text></g>
+        <g class="an dig3"><rect x="46" y="110" width="138" height="22" rx="6" fill="var(--amber-soft)"/><text x="52" y="124" font-size="8">3 payments to approve · 1 mismatch</text></g>
+        <g class="an dig4"><rect x="46" y="138" width="138" height="22" rx="6" fill="var(--ok-soft)"/><text x="52" y="152" font-size="8">Cash in staff hands RWF 2.4 M</text></g>
+        <text x="48" y="190" font-size="7" class="mute">same page in the app · tap to open</text>
+        <g class="an ringfade"><g class="an ring"><path d="M250 90 c-10-10 0-30 10-20 l8 8 c4 4 4 8 0 12 l-4 4 c6 10 14 18 24 24 l4-4 c4-4 8-4 12 0 l8 8 c10 10-10 20-20 10 c-20-12-34-26-42-42z" class="mute"/></g><text x="276" y="150" font-size="9" text-anchor="middle" class="mute">morning calls</text><line x1="240" y1="146" x2="312" y2="146" stroke="var(--bad)" stroke-width="2"/></g>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Alerts-first dashboard</span><span>KPIs: container P&amp;L, clients owe us, cash in staff hands, cash in/out</span><span>Notification matrix (in-app, email, SMS)</span><span>07:00 WhatsApp digest</span><span>Escalation: unapproved reminds daily, overdue at 7 / 30 / 45</span><span>Group overview for Package B</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Home</b> → Dashboard</span><span class=""><b>Home</b> → Group overview</span><span class=""><b>Notifications</b> → Notifications & alerts</span><span class=""><b>Settings</b> → Configuration: notification matrix, digest time</span><span class="later"><b>Home</b> → Ask the MIS</span></div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Open the dashboard on the phone.</b> Every card is a query; change a cost and the margin moves.</li>
+          <li><b>Receive the digest at 07:00</b> for a real day and compare it with what the morning calls would have said.</li>
+          <li><b>Leave a payment unapproved.</b> The reminder repeats daily until it is ruled on.</li>
+          <li><b>Switch company.</b> The same cards for JIVAH alone, then for both.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>The MD has not made a morning status call for five working days and every figure on the dashboard was traced back to a line in the system.</span><span class="k md">MD sees</span><span>Both companies at any hour, with what needs them at the top.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 10 ========== -->
+<section class="slice" id="s10" data-i="10" data-name="Slice 10 · Import, then the later modules" data-week="weeks 22–24, then open-ended">
+  <div class="pin">10</div>
+  <div class="card">
+    <div class="head"><h2>Import the history, then one module at a time</h2><div class="meta"><span class="chip mod">Module</span><span class="chip wk">3 weeks + later slices</span></div></div>
+    <p class="why">Bring the Excel history across only once the live system has proven itself. After that, every remaining feature is its own slice with its own test, in whatever order the business needs, and switching one off never touches another.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="Spreadsheet rows flow into the system; later modules light up one by one">
+        <g stroke="var(--line)" fill="var(--paper)"><rect x="14" y="20" width="110" height="90" rx="4"/><line x1="14" y1="40" x2="124" y2="40"/><line x1="14" y1="58" x2="124" y2="58"/><line x1="14" y1="76" x2="124" y2="76"/><line x1="14" y1="94" x2="124" y2="94"/><line x1="50" y1="20" x2="50" y2="110"/><line x1="86" y1="20" x2="86" y2="110"/></g>
+        <text x="18" y="33" font-size="7" class="mute">SHIPMENT REPORT 2026</text>
+        <path d="M128 65 C 160 65, 160 65, 190 65" fill="none" stroke="var(--teal)" stroke-width="3" class="an flow"/>
+        <rect x="194" y="40" width="132" height="50" rx="8" class="box"/><text x="260" y="60" font-size="9" text-anchor="middle" font-weight="700">Corridor MIS</text><text x="260" y="76" font-size="7" text-anchor="middle" class="mute">open bookings loaded · closed ones archived</text>
+        <g font-size="8" text-anchor="middle">
+          <g class="an brick" style="animation-delay:0s"><rect x="14" y="140" width="72" height="34" rx="6" class="box"/><text x="50" y="161">Transport legs</text></g>
+          <g class="an brick" style="animation-delay:.6s"><rect x="94" y="140" width="72" height="34" rx="6" class="box"/><text x="130" y="161">Documents</text></g>
+          <g class="an brick" style="animation-delay:1.2s"><rect x="174" y="140" width="72" height="34" rx="6" class="box"/><text x="210" y="161">Reports</text></g>
+          <g class="an brick" style="animation-delay:1.8s"><rect x="254" y="140" width="72" height="34" rx="6" class="box"/><text x="290" y="161">Checkpoints</text></g>
+          <g class="an brick" style="animation-delay:2.4s"><rect x="14" y="182" width="72" height="34" rx="6" class="box"/><text x="50" y="203">Ledger · bank</text></g>
+          <g class="an brick" style="animation-delay:3s"><rect x="94" y="182" width="72" height="34" rx="6" class="box"/><text x="130" y="203">Payroll</text></g>
+          <g class="an brick" style="animation-delay:3.6s"><rect x="174" y="182" width="72" height="34" rx="6" class="box"/><text x="210" y="203">Ask the MIS</text></g>
+          <g class="an brick" style="animation-delay:4.2s"><rect x="254" y="182" width="72" height="34" rx="6" class="box" stroke-dasharray="4 3"/><text x="290" y="203">Fiscal · later</text></g>
+        </g>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Import wizard for SHIPMENT REPORT 2026 and FINANCE MASTER XL</span><span>Validation report the client fixes</span><span>Open bookings loaded, closed ones read-only archive</span><span>Migration check signed by the MD</span></div>
+        <div class="menus"><span class="k">Menus switched on in the tenant portal</span><div class="m"><span class=""><b>Settings</b> → Data import</span><span class="later"><b>Shipments</b> → Transport leg</span><span class="later"><b>Accounting</b> → Office expenses · Bank statement · Payroll · General ledger</span><span class="later"><b>Reports</b> → Reports and Excel export</span><span class="later"><b>Home</b> → Ask the MIS</span><span class="later"><b>Checks</b> → Audit trail: full filters and export</span></div><div style="font-size:12px;color:var(--mute);margin-top:6px">Dashed = switched on later, each as its own slice. The menu entries exist in the mockup; in the product they stay hidden for OLIU until their slice passes.</div></div>
+        <h3>Runs</h3>
+        <ol class="runs">
+          <li><b>Upload the raw sheet.</b> The wizard maps columns and lists every row that fails: bad container numbers, missing clients, duplicate bookings.</li>
+          <li><b>The client fixes the sheet</b> using that list. Upload again until it is clean.</li>
+          <li><b>Load.</b> Open and in-flight bookings appear on the board at the right stage; closed ones are an archive.</li>
+          <li><b>The MD signs the migration check:</b> container count, open balances and tip totals agree with the sheet.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>The MD signed the reconciliation and the Excel file was closed for new entries.</span><span class="k md">MD sees</span><span>The whole year in one place, and the spreadsheet retired.</span></div>
+        <h3>Then, each as its own slice with its own test</h3>
+        <div class="build"><span>Transport legs, breakdowns, replacement-leg gate</span><span>Document checklist per cargo type</span><span>Optional checkpoint events</span><span>Reports and Excel export for the accountant</span><span>Ledger, bank matching, period lock</span><span>Payroll</span><span>Ask the MIS</span><span>Fiscal receipts, if ever asked for</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 11 ========== -->
+<section class="slice" id="s11" data-i="11" data-name="Slice 11 · Owner portal, stage 1: tenants and onboarding" data-week="weeks 25–27">
+  <div class="pin">11</div>
+  <div class="card">
+    <div class="head"><h2>Owner portal, stage 1: tenants and onboarding</h2><div class="meta"><span class="chip own">Owner</span><span class="chip wk">3 weeks</span></div></div>
+    <p class="why">Not before OLIU runs its month. The owner portal earns its place the day a second forwarder is being set up, and not a day earlier. Stage 1 is only what that second onboarding needs: a list of accounts, each account's companies and users, the set-up questions as a checklist, and a log of what you did.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="Tenant rows appear one by one under the owner's list">
+        <rect x="14" y="14" width="312" height="28" rx="8" class="box"/><text x="26" y="33" font-size="11" font-weight="700">Tenants</text><text x="250" y="33" font-size="9" class="mute">counts, never contents</text>
+        <g class="an rowin"><rect x="14" y="56" width="312" height="34" rx="8" class="box"/><rect x="24" y="66" width="14" height="14" rx="3" class="amber"/><text x="46" y="77" font-size="11">OLIU · JIVAH</text><text x="170" y="77" font-size="9" class="mute">group · 2 companies · 12 users</text><text x="290" y="77" font-size="9" class="ok" style="fill:var(--ok)">live</text></g>
+        <g class="an rowin2"><rect x="14" y="98" width="312" height="34" rx="8" class="box"/><rect x="24" y="108" width="14" height="14" rx="3" class="teal"/><text x="46" y="119" font-size="11">Second forwarder</text><text x="170" y="119" font-size="9" class="mute">single company · 3 users</text><text x="272" y="119" font-size="9" style="fill:var(--open)">onboarding</text></g>
+        <g class="an rowin3"><rect x="14" y="140" width="312" height="34" rx="8" class="box" stroke-dasharray="4 3"/><text x="46" y="161" font-size="11" class="mute">+ New account → the set-up questions</text></g>
+        <g font-size="9" class="mute"><text x="14" y="200">1 sign-up</text><text x="74" y="200">2 companies</text><text x="146" y="200">3 users</text><text x="196" y="200">4 import</text><text x="250" y="200">5 training</text><text x="300" y="200">6 live</text></g>
+        <rect x="14" y="208" width="312" height="6" rx="3" fill="var(--line)"/><rect x="14" y="208" width="130" height="6" rx="3" class="an split1" fill="var(--amber)"/>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Tenants list: account, companies, users, boxes this month, status</span><span>Account page: companies & branches, users, usage counts</span><span>Onboarding checklist: the set-up questions, import, training, pilot, live</span><span>Your own audit log</span><span>"Look inside" only with the tenant MD's timed approval</span></div>
+        <div class="menus"><span class="k own">Owner portal screens</span><div class="m"><span class="own"><b>Overview</b> → counts only</span><span class="own"><b>Tenants</b> → list and account page</span><span class="own"><b>Onboarding</b> → checklist per new account</span><span class="own"><b>Team & audit</b> → you, and what you did</span></div><span class="k">Tenant portal, same stage</span><div class="m"><span><b>Help</b> → Ask for help: a ticket with screen and last actions attached</span><span><b>Settings</b> → Company & subscription: platform access to your data</span></div></div>
+        <h3>How</h3>
+        <ol class="runs">
+          <li><b>Same code, one more role.</b> The owner is a user whose scope is "all accounts, counts only". No new database, no second application. Every screen reads totals the tenant portal already computes.</li>
+          <li><b>Onboard the second forwarder with it.</b> Walk the checklist yourself: set-up questions, companies, users, their Excel through the slice 10 wizard, a training call, a three-week pilot.</li>
+          <li><b>Try to see a tenant's invoice.</b> You cannot. Ask their MD for a look-inside; it opens for four hours and is logged in both audit trails.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>A second account was created and onboarded without touching the database by hand, and the owner role reached no tenant record without an approved session.</span><span class="k md">You see</span><span>Every account on one screen, where each is on the onboarding road, and nothing inside them.</span></div>
+        <p class="notyet"><b>Not built yet:</b> no plans, no subscription invoices, no support queue, no health screen. One tenant pays by bank transfer against a PDF you write; that is fine at two accounts.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== 12 ========== -->
+<section class="slice" id="s12" data-i="12" data-name="Slice 12 · Owner portal, stage 2: billing, support, health" data-week="weeks 28–30, when the third account signs">
+  <div class="pin">12</div>
+  <div class="card">
+    <div class="head"><h2>Owner portal, stage 2: billing, support, health</h2><div class="meta"><span class="chip own">Owner</span><span class="chip wk">3 weeks · when the third account signs</span></div></div>
+    <p class="why">These screens replace work you can do by hand for two tenants and cannot for ten. Build them when the third account signs, not before, and reuse what exists: the subscription invoice is the slice 8 invoice engine with you as the biller, and the feature switches are the settings slice 1 already stores.</p>
+    <div class="body">
+      <div class="art"><svg viewBox="0 0 340 230" aria-label="Owner portal screens light up one by one">
+        <g font-size="9" text-anchor="middle">
+          <g class="an brick" style="animation-delay:0s"><rect x="14" y="30" width="96" height="44" rx="8" class="box"/><text x="62" y="49">Plans & packages</text><text x="62" y="63" class="mute">feature switches</text></g>
+          <g class="an brick" style="animation-delay:.7s"><rect x="122" y="30" width="96" height="44" rx="8" class="box"/><text x="170" y="49">Billing</text><text x="170" y="63" class="mute">slice 8 engine</text></g>
+          <g class="an brick" style="animation-delay:1.4s"><rect x="230" y="30" width="96" height="44" rx="8" class="box"/><text x="278" y="49">Dunning</text><text x="278" y="63" class="mute">7 · 14 · 21 · 30 days</text></g>
+          <g class="an brick" style="animation-delay:2.1s"><rect x="14" y="90" width="96" height="44" rx="8" class="box"/><text x="62" y="109">Support</text><text x="62" y="123" class="mute">tickets from Ask for help</text></g>
+          <g class="an brick" style="animation-delay:2.8s"><rect x="122" y="90" width="96" height="44" rx="8" class="box"/><text x="170" y="109">Health</text><text x="170" y="123" class="mute">jobs · backups · uptime</text></g>
+          <g class="an brick" style="animation-delay:3.5s"><rect x="230" y="90" width="96" height="44" rx="8" class="box"/><text x="278" y="109">Releases</text><text x="278" y="123" class="mute">one version, all tenants</text></g>
+        </g>
+        <path d="M30 160 H310" stroke="var(--line)" stroke-width="2"/>
+        <g font-size="9"><text x="30" y="180" class="mute">accounts →</text><text x="100" y="180">2</text><text x="160" y="180">3</text><text x="220" y="180">6</text><text x="280" y="180">10</text></g>
+        <g class="an state2"><circle cx="163" cy="160" r="7" fill="var(--amber)"/><text x="163" y="205" font-size="9" text-anchor="middle">build stage 2 here</text></g>
+      </svg></div>
+      <div class="text">
+        <h3>What gets built</h3>
+        <div class="build"><span>Packages and feature switches per account</span><span>Subscription invoice on the 1st, through the slice 8 engine</span><span>Dunning: reminders, banner, read-only, suspend; nothing deleted</span><span>Support queue fed by the tenant's Ask for help</span><span>Health: jobs, backups, restore test, uptime</span><span>Releases: one version, notes the tenant reads</span></div>
+        <div class="menus"><span class="k own">Owner portal screens</span><div class="m"><span class="own"><b>Plans & packages</b> → switches per account</span><span class="own"><b>Billing</b> → invoices, payments, dunning</span><span class="own"><b>Support</b> → tickets, severity, response times</span><span class="own"><b>Health & regions</b> → jobs and backups</span><span class="own"><b>Releases</b> → version and feature switches</span></div></div>
+        <h3>How</h3>
+        <ol class="runs">
+          <li><b>Bill yourself first.</b> Generate the 1 November run for the three accounts; check each PDF against the package. Match a bank transfer to one invoice by hand.</li>
+          <li><b>Let one go unpaid on purpose.</b> Watch the reminders fire at 7 and 14 days, the banner at 21, read-only at 30. Confirm the tenant can still export everything.</li>
+          <li><b>Raise a ticket from inside a tenant.</b> It arrives with the screen and the last twenty audit events attached. Answer it from the queue.</li>
+          <li><b>Switch a feature off for one account.</b> Payroll disappears from that tenant's sidebar; its records stay in reports. No other tenant notices.</li>
+        </ol>
+        <div class="test"><span class="k">Pass when</span><span>A month's subscription invoices went out without you, one unpaid account went read-only and came back on payment, and a feature switch changed one tenant's sidebar and nothing else.</span><span class="k md">You see</span><span>Who pays, who is late, who needs help, and whether last night's backup ran, in one morning glance, like the MD's digest but for the platform.</span></div>
+        <p class="notyet"><b>Still later, only if asked:</b> a second hosting region, fiscal receipts, tax-authority links, shipping-line APIs.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="gantt">
+  <h2 style="font-size:20px;margin-bottom:10px">The road at a glance</h2>
+  <table>
+    <tr><th>Slice</th><th>Weeks</th><th style="width:60%">One developer, one slice at a time</th></tr>
+    <tr><td>1 · Accounts, companies, roles</td><td class="num">1–2</td><td><div class="bar spine" style="width:6.7%;margin-left:0.0%"></div></td></tr>
+    <tr><td>2 · Booking and container</td><td class="num">3–4</td><td><div class="bar spine" style="width:6.7%;margin-left:6.7%"></div></td></tr>
+    <tr><td>3 · Cost entry and split</td><td class="num">5–6</td><td><div class="bar spine" style="width:6.7%;margin-left:13.3%"></div></td></tr>
+    <tr><td>4 · Journey stages and hand-over</td><td class="num">7–9</td><td><div class="bar " style="width:10.0%;margin-left:20.0%"></div></td></tr>
+    <tr><td>5 · Tip entry</td><td class="num">10–11</td><td><div class="bar " style="width:6.7%;margin-left:30.0%"></div></td></tr>
+    <tr><td>6 · Payments</td><td class="num">12–14</td><td><div class="bar " style="width:10.0%;margin-left:36.7%"></div></td></tr>
+    <tr><td>7 · Blind entry and compare · Dar open</td><td class="num">15–17</td><td><div class="bar open" style="width:10.0%;margin-left:46.7%"></div></td></tr>
+    <tr><td>8 · Invoices</td><td class="num">18–19</td><td><div class="bar " style="width:6.7%;margin-left:56.7%"></div></td></tr>
+    <tr><td>9 · Dashboard and digest</td><td class="num">20–21</td><td><div class="bar " style="width:6.7%;margin-left:63.3%"></div></td></tr>
+    <tr><td>10 · Import, then later modules</td><td class="num">22–24 →</td><td><div class="bar " style="width:10.0%;margin-left:70.0%"></div></td></tr>
+    <tr><td>11 · Owner portal stage 1</td><td class="num">25–27</td><td><div class="bar own" style="width:10.0%;margin-left:80.0%"></div></td></tr>
+    <tr><td>12 · Owner portal stage 2</td><td class="num">28–30</td><td><div class="bar own" style="width:10.0%;margin-left:90.0%"></div></td></tr>
+  </table>
+  <p style="font-size:12.5px;color:var(--mute);margin-top:10px">About six months for one developer to a system OLIU runs its month on, then six more weeks for the owner portal, timed to the second and third accounts rather than to the calendar. Three developers in parallel can shorten the tenant slices only after slice 3, because slices 1 to 3 are the spine everything else hangs on; a realistic parallel plan is slices 4, 5, 6 together, then 7, 8, 9 together, which lands OLIU in late January. Each week-count includes the week of live use that closes the slice. The proposal's 14 December date is reachable only by shipping slices 1, 2, 3, 6 and 8 first and the rest from February; that is a decision for the MD, not a default.</p>
+</div>
+
+<div class="card" style="margin-top:40px">
+  <h2>How the code will be written, promised before slice 1</h2>
+  <p style="color:var(--body);margin:6px 0 10px">These are commitments, not wishes. Each one is checked at the gate of every slice, together with the test.</p>
+  <ul>
+    <li><b>Built to resist attack.</b> No system is unhackable, so the promise is specific: every request checked against the signed-in user's account, company and role on the server, never trusted from the browser; passwords hashed, one-time codes to the department mailbox, sessions that expire; every input validated and every database query parameterised; files scanned and stored outside the web root; rate limits on login and OTP; secrets in the environment, never in the code; dependencies pinned and checked for known holes at every slice; an attack checklist (OWASP top ten) run before a slice is called done.</li>
+    <li><b>Clean.</b> One language front and back, one style enforced by a formatter and a linter, small functions with one job, names that say what a thing is in the business's own words: container, cost_entry, payment_order. No cleverness that needs a comment to explain it.</li>
+    <li><b>Efficient.</b> Every list is paged and indexed by account and company; the compare job, digest and dunning run in the background, never while a user waits; the MD's phone pages load under a second on a Kigali connection; money arithmetic is integer, so it is both exact and fast.</li>
+    <li><b>Easy to understand.</b> The folder tree mirrors the modules on this page, so a reader finds Payments under payments. Each module has a short README saying what it owns and what events it sends. Tests read like the runs on this page, with real OLIU numbers.</li>
+    <li><b>A slice note after every slice.</b> Before the next slice starts, a plain-language document for you: what was built, which tables and screens, how a request travels through the code, what was tested and how, what was deliberately left out, and the questions for you. Short, with screenshots, kept with the code. Those notes, read in order, become the handover manual for any future developer.</li>
+  </ul>
+</div>
+
+<div class="close">
+  <div class="card">
+    <h2>Why this order and not the proposal's</h2>
+    <ul>
+      <li><b>Spine first.</b> Account, container, cost. Without those three nothing else can be tested on real data.</li>
+      <li><b>Value early.</b> After slice 3, six weeks in, OLIU already knows what each box cost. That is the first thing the owner asked for.</li>
+      <li><b>The control last among the core.</b> Blind entry and compare need both trails to exist, so it sits at slice 7, not slice 1 where its importance would tempt you to put it.</li>
+      <li><b>Invoices after payments.</b> The client invoice waits until the box's own costs are covered, so payments must exist before the issue gate can be real.</li>
+      <li><b>Import late.</b> Migrating history into a system that is still changing shape is wasted work. Migrate once, into a system that has held a live month.</li>
+      <li><b>Owner portal last, in two stages.</b> With one tenant it is a form you fill yourself. It becomes a screen when the second account is onboarded and a billing system when the third signs. Building it earlier would be building for customers who do not exist.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>What stays open while we build</h2>
+    <ul>
+      <li><b>Dar blind entry.</b> Slice 7 ships for Kigali. Dar lines carry a single-trail marker until the MD chooses one of the four arrangements. No code depends on the choice.</li>
+      <li><b>Who bills the client: decided, OLIU.</b> The August analysis said JIVAH; the MD has confirmed OLIU, as the October invoices show. Set at account creation in slice 1; the invoice slice reads it.</li>
+      <li><b>Reconciliation tolerance.</b> Exact match by default, a band for conversion drift. A setting in slice 7.</li>
+      <li><b>Escort with the cargo, or dispatcher.</b> Decides how hard slice 5's offline mode has to work. Build offline anyway; it costs little.</li>
+    </ul>
+  </div>
+</div>
+
+<footer><span>Corridor MIS · build road · drawn from the August 2026 systems analysis §11, the proposal's phases, and the two mockups · menu names are the SaaS mockup's</span><span>Pricing deliberately left out</span></footer>
+</div>
+
+<script>
+(function(){
+  var slices=[].slice.call(document.querySelectorAll('.slice'));
+  var sts=[].slice.call(document.querySelectorAll('.rail .st'));
+  var truck=document.getElementById('truck'),name=document.getElementById('railname'),week=document.getElementById('railweek');
+  var lefts=[4,12.5,21.1,29.6,38.2,46.7,55.3,63.8,72.4,80.9,89.5,98];
+  var cur=1;
+  function setCur(i){
+    cur=i;
+    sts.forEach(function(s){var k=+s.dataset.i;s.classList.toggle('done',k<i);s.classList.toggle('cur',k===i);});
+    var sl=slices[i-1];name.textContent=sl.dataset.name;week.textContent=sl.dataset.week;
+  }
+  function onScroll(){
+    var vh=window.innerHeight,best=1,bestD=1e9;
+    slices.forEach(function(s,ix){
+      var r=s.getBoundingClientRect();
+      var d=Math.abs(r.top+Math.min(r.height,vh)*0.35-vh*0.4);
+      if(r.top<vh*0.6&&r.bottom>vh*0.2&&d<bestD){best=ix+1;bestD=d;}
+      s.classList.toggle('in',r.top<vh*0.75);
+    });
+    if(best!==cur)setCur(best);
+    var first=slices[0].getBoundingClientRect().top+window.scrollY,last=slices[slices.length-1].getBoundingClientRect().top+window.scrollY;
+    var p=Math.max(0,Math.min(1,(window.scrollY+vh*0.4-first)/(last-first)));
+    truck.style.left=(lefts[0]+(lefts[lefts.length-1]-lefts[0])*p)+'%';
+  }
+  window.addEventListener('scroll',onScroll,{passive:true});window.addEventListener('resize',onScroll);
+  sts.forEach(function(s){s.addEventListener('click',function(){var t=document.getElementById('s'+s.dataset.i);var top=t.getBoundingClientRect().top+window.scrollY-110;window.scrollTo({top:top,behavior:'smooth'});});});
+  setCur(1);onScroll();
+})();
+</script>

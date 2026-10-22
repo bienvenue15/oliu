@@ -1,0 +1,359 @@
+<title>Corridor MIS Analysis</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: one reading column (~68ch) with full-width "strips" for the story, the diagrams and the scorecard. */
+  :root{
+    --bg:#f6f4ef; --paper:#fffdf9; --ink:#1b2430; --body:#3d4752; --muted:#6f7a86; --line:#dcd6ca;
+    --navy:#16283c; --copper:#b4682a; --copper-soft:#f3e4d3; --ok:#1e7f3c; --warn:#9a6b00; --bad:#b3261e;
+    --ok-bg:#e4f2e8; --warn-bg:#fbf1d6; --bad-bg:#f9e3e0;
+    --display:"Source Serif 4",Georgia,"Times New Roman",serif;
+    --sans:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",Consolas,Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --bg:#131a22; --paper:#1a222c; --ink:#eef1f4; --body:#c7cfd8; --muted:#8c98a6; --line:#2d3845;
+    --navy:#dfe7f1; --copper:#d9955a; --copper-soft:#3a2a1c; --ok:#5fc47e; --warn:#e3b84a; --bad:#f08a80;
+    --ok-bg:#1c3324; --warn-bg:#3a3014; --bad-bg:#3d1f1c; color-scheme:dark } }
+  :root[data-theme="dark"]{
+    --bg:#131a22; --paper:#1a222c; --ink:#eef1f4; --body:#c7cfd8; --muted:#8c98a6; --line:#2d3845;
+    --navy:#dfe7f1; --copper:#d9955a; --copper-soft:#3a2a1c; --ok:#5fc47e; --warn:#e3b84a; --bad:#f08a80;
+    --ok-bg:#1c3324; --warn-bg:#3a3014; --bad-bg:#3d1f1c; color-scheme:dark }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--body);font:16px/1.6 var(--sans);padding-block:0 60px;padding-inline:16px}
+  .wrap{max-width:980px;margin:0 auto}
+  .col{max-width:68ch}
+  h1,h2,h3{font-family:var(--display);color:var(--ink);text-wrap:balance;line-height:1.15;margin:0}
+  h1{font-size:clamp(34px,6vw,54px);font-weight:700}
+  h2{font-size:clamp(24px,3.4vw,32px);font-weight:700;margin:56px 0 14px}
+  h3{font-size:18px;font-weight:700;margin:22px 0 8px}
+  p{margin:0 0 14px}
+  .eyebrow{font:600 11.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--copper);margin-bottom:10px}
+  .lede{font-size:19px;color:var(--ink);max-width:62ch}
+  .mono{font-family:var(--mono);font-size:.92em}
+  .muted{color:var(--muted)}
+  a{color:var(--copper)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--copper);outline-offset:2px}
+
+  header{padding:48px 0 20px;border-bottom:1px solid var(--line)}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:13px;color:var(--muted);margin-top:18px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:28px 0 0}
+  .tile{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+  .tile .n{font-family:var(--display);font-size:30px;color:var(--ink);font-variant-numeric:tabular-nums}
+  .tile .l{font-size:12.5px;color:var(--muted)}
+
+  /* story of one box */
+  .box{display:grid;grid-template-columns:repeat(6,1fr);gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper);margin:18px 0 8px}
+  .box .st{padding:14px 14px 16px;border-right:1px solid var(--line);min-width:0}
+  .box .st:last-child{border-right:none}
+  .box .k{font:600 11px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--copper)}
+  .box .w{font-family:var(--display);font-size:17px;color:var(--ink);margin:8px 0 6px}
+  .box .d{font-size:12.5px;color:var(--body)}
+  .box .who{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .who b{color:var(--navy);font-weight:600}
+
+  table{width:100%;border-collapse:collapse;font-size:14.5px;background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font:600 11.5px/1.3 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--bg)}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tablewrap{overflow-x:auto;margin:14px 0}
+  .tablewrap table{min-width:560px}
+
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;min-width:0}
+  .card h3{margin:0 0 6px}
+  .card p{font-size:14.5px;margin:0}
+  .card .tag{display:inline-block;font:600 11px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--copper);background:var(--copper-soft);border-radius:99px;padding:5px 9px;margin-bottom:10px}
+
+  .pill{display:inline-block;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+  .ok{background:var(--ok-bg);color:var(--ok)}.warn{background:var(--warn-bg);color:var(--warn)}.bad{background:var(--bad-bg);color:var(--bad)}
+
+  /* structure diagram */
+  .pairs{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+  .acct{border:1.5px solid var(--line);border-radius:14px;background:var(--paper);padding:14px}
+  .acct .ttl{font:600 11.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .co{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;background:var(--bg)}
+  .co .flag{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--copper);border:1px solid var(--copper);border-radius:6px;padding:2px 5px;margin-top:2px;flex-shrink:0}
+  .co b{display:block;color:var(--ink);font-weight:600}
+  .co span{font-size:13px;color:var(--body)}
+  .arrow{text-align:center;font-size:12.5px;color:var(--muted);padding:6px 0 0}
+
+  .roles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+  .role{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+  .role b{display:block;color:var(--ink);font-family:var(--display);font-size:17px}
+  .role .start{font-size:12px;color:var(--copper);font-weight:600;margin:4px 0 6px}
+  .role p{font-size:13.5px;margin:0}
+
+  .score{display:grid;grid-template-columns:150px 1fr 70px;gap:10px 14px;align-items:center;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:16px 0}
+  .score .lab{font-weight:600;color:var(--ink)}
+  .score .track{height:10px;background:var(--line);border-radius:5px;overflow:hidden}
+  .score .fill{height:100%;border-radius:5px;background:var(--copper)}
+  .score .v{font-family:var(--mono);font-size:13px;color:var(--muted);text-align:right}
+  .score .why{grid-column:1/-1;font-size:13.5px;color:var(--body);margin:-4px 0 6px}
+
+  .verdict{border-left:4px solid var(--copper);background:var(--paper);padding:18px 20px;border-radius:0 12px 12px 0;margin:20px 0}
+  .verdict p:last-child{margin:0}
+  ul{padding-left:20px;margin:0 0 14px}
+  li{margin:4px 0}
+  .assume{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);padding-top:8px;margin-top:10px}
+  footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+
+  @media (max-width:860px){
+    .tiles{grid-template-columns:1fr 1fr}
+    .box{grid-template-columns:1fr 1fr 1fr}
+    .box .st{border-bottom:1px solid var(--line)}
+    .roles{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:520px){
+    .tiles,.cards,.pairs,.roles{grid-template-columns:1fr}
+    .box{grid-template-columns:1fr}
+    .box .st{border-right:none}
+    .score{grid-template-columns:110px 1fr 56px}
+  }
+  @media (prefers-reduced-motion:no-preference){ .score .fill{transition:width .6s ease} }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Analysis · 8 October 2026</div>
+  <h1>A container that cannot lose money quietly</h1>
+  <p class="lede" style="margin-top:16px">What the OLIU · JIVAH system does, why it works, and what it takes to turn it from one client's build into Corridor MIS, a product other freight forwarders can run their own way.</p>
+  <div class="meta"><span>Sources: systems analysis (August 2026), issues paper v2, proposal P-2026-09-OJ rev. 3, the two mockups, OLIU invoices KGLDAR03102026 and KGLDAR04102026</span><span>Written for: the owner, and anyone he shows it to</span></div>
+  <div class="tiles">
+    <div class="tile"><div class="n">2 → 1</div><div class="l">two companies, one account, one owner view</div></div>
+    <div class="tile"><div class="n">29</div><div class="l">screens of the original MIS, all kept</div></div>
+    <div class="tile"><div class="n">6</div><div class="l">roles, unchanged, resolved at login</div></div>
+    <div class="tile"><div class="n">0</div><div class="l">external integrations in this version</div></div>
+  </div>
+</header>
+
+<section>
+  <h2>1 · Follow one box</h2>
+  <div class="col"><p>The easiest way to understand the system is to follow a single 40-foot container of tantalite, <span class="mono">PCIU 9084297</span>, from a Kigali warehouse to a buyer in Ningbo. At every step somebody spends money, and at every step the system writes down who, how much, and for which box.</p></div>
+  <div class="box">
+    <div class="st"><div class="k">Kigali</div><div class="w">Booked and loaded</div><div class="d">Booking № checked against the shipping line's format. Container № checked by its ISO 6346 check digit, so a typo cannot create a ghost box.</div><div class="who"><b>Operations Manager</b></div></div>
+    <div class="st"><div class="k">Road</div><div class="w">Truck to Rusumo</div><div class="d">Hire RWF 1,900,000 on leg 1. A breakdown at Kahama creates a replacement leg; the original record is never edited.</div><div class="who"><b>Transport Coordinator</b></div></div>
+    <div class="st"><div class="k">Border</div><div class="w">Hand-over to JIVAH</div><div class="d">From here costs belong to the Tanzanian company. Two books, never merged, never "owing" each other.</div><div class="who"><b>System rule</b></div></div>
+    <div class="st"><div class="k">Roadside</div><div class="w">RWF 20,000 to pass</div><div class="d">Three taps on a phone, offline if needed: box, reason, amount, MoMo ID. Capped per tip and per month.</div><div class="who"><b>Field Officer</b></div></div>
+    <div class="st"><div class="k">Dar es Salaam</div><div class="w">ICD, port, vessel</div><div class="d">Clearing TZS 1,850,000, ICD charges, ocean freight USD 2,140 on KOTA SETIA, BL DAR600233400.</div><div class="who"><b>Ops + Finance, blind</b></div></div>
+    <div class="st"><div class="k">Departed</div><div class="w">Invoice builds itself</div><div class="d">USD 3,600 for this box joins 11 others on one draft. Finance checks and issues. Cost 4,751, earned 3,600 on this box; the booking still makes money.</div><div class="who"><b>Finance Officer</b></div></div>
+  </div>
+  <p class="muted" style="font-size:13px">Figures from the mockup's example record and the October invoices. Per-box margin varies; the owner sees it per box, per booking and per client the day the numbers land.</p>
+</section>
+
+<section>
+  <h2>2 · Why today's way leaks</h2>
+  <div class="col"><p>Two companies, one shared Excel file, WhatsApp and phone calls. Nobody can say what a box cost until weeks after it sailed. The proposal's issues paper lists thirteen problems; they come down to four.</p></div>
+  <div class="tablewrap"><table>
+    <tr><th>Leak</th><th>How it happens today</th><th>What stops it</th></tr>
+    <tr><td><b>The same invoice paid twice</b></td><td>A supplier is paid from a message; nobody checks it was paid already. Duplicates surface only if the supplier says so.</td><td>Same beneficiary, box and amount is blocked at request and sent to the MD queue. A paid order locks.</td></tr>
+    <tr><td><b>Costs billed late or never</b></td><td>Invoices are typed from the sheet after the box has left; numbering has gaps; a cost found later is written off.</td><td>The invoice is built from the container records at departure. Gapless numbers. A box closes only when its costs are in.</td></tr>
+    <tr><td><b>Cash in staff hands</b></td><td>Facilitation payments reported from memory or photos, no ceiling, reconciled weeks later, payee unknown.</td><td>Three-tap entry with payee type and MoMo ID, per-tip ceiling, monthly cap with alerts at 80 % and 100 %.</td></tr>
+    <tr><td><b>Nobody is accountable</b></td><td>One shared login, cells overwritten, no history of who changed what.</td><td>Individual logins, six roles, append-only audit trail, four-eyes on bank details.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>3 · The four controls that make the numbers trustworthy</h2>
+  <div class="cards">
+    <div class="card"><span class="tag">Control 1</span><h3>Two trails, compared by a job</h3><p>Operations records what a box cost from the field. Finance records it again from the paper invoice in hand. A job compares them every 15 minutes. A mismatch becomes a flag; the MD's ruling is the third record.</p></div>
+    <div class="card"><span class="tag">Control 2</span><h3>Blind entry</h3><p>The Finance Officer never sees Operations' figure. Slower in the moment, and the whole system rests on it. The open question is Dar es Salaam, where one person may hold both trails today.</p></div>
+    <div class="card"><span class="tag">Control 3</span><h3>Nothing resolves locally</h3><p>Duplicate container, repeat payment, replacement leg: each goes to the MD queue with both records attached. Month-end becomes a review of flags already ruled on, about one day instead of five.</p></div>
+    <div class="card"><span class="tag">Control 4</span><h3>The invoice is built, not typed</h3><p>Every column on the real OLIU invoice already exists in the container record: departure date, vessel, ETD, BL №, container №, size, lot №, rate. The system composes it; a person reviews and issues.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>4 · The invoice, before and after</h2>
+  <div class="col"><p>The two invoices in the folder are the best evidence this is worth doing. Invoice <span class="mono">KGLDAR03102026</span> to Zhejiang Star Mining bills 12 boxes at USD 3,600 on two bills of lading. Invoice <span class="mono">KGLDAR04102026</span> to Transvera Group bills 6 boxes the next day. Both were typed by hand into a spreadsheet template.</p></div>
+  <div class="tablewrap"><table>
+    <tr><th>On the paper invoice</th><th>Today</th><th>In the system</th></tr>
+    <tr><td>Company header, TIN, bank blocks for Equity, I&amp;M and BK</td><td>Retyped each time</td><td><span class="pill ok">From settings</span></td></tr>
+    <tr><td>Bill-to, customer ID OLISM00002</td><td>Retyped</td><td><span class="pill ok">From the client record</span></td></tr>
+    <tr><td>Invoice number</td><td>Date-based: two invoices on one day would collide</td><td><span class="pill ok">Gapless sequence, prefix kept</span></td></tr>
+    <tr><td>Dep date, vessel, ETD, BL №, container №, size, lot №</td><td>Copied from the shipment sheet, row by row</td><td><span class="pill ok">From the container record</span></td></tr>
+    <tr><td>USD 3,600 per 40FT box</td><td>Typed</td><td><span class="pill warn">Rate card; a different rate needs a reason</span></td></tr>
+    <tr><td>Finance Officer's name</td><td>Typed</td><td><span class="pill ok">The user who issues it</span></td></tr>
+  </table></div>
+  <div class="col"><p>Target from the proposal: a client invoice within two working days of a box closing, instead of days to weeks. On roughly USD 600,000 of yearly revenue, invoicing 15 days sooner frees about USD 25,000 of working capital.</p></div>
+</section>
+
+<section>
+  <h2>5 · From one client to a product: two packages</h2>
+  <div class="col"><p>The bespoke build serves one owner with two companies. A product will serve many owners, and they come in two shapes. So the system sells two packages, chosen once when the account is opened. Both run the same code; the difference is a number of companies and a visibility rule.</p></div>
+  <div class="pairs">
+    <div class="acct"><div class="ttl">Package A · Single company</div>
+      <div class="co"><span class="flag">RW</span><div><b>Transvera Group Ltd</b><span>One legal company, one country, one book. Bills its own clients. Every user sees the whole company, within their role. No company switcher, no hand-over.</span></div></div>
+    </div>
+    <div class="acct"><div class="ttl">Package B · Group, two or more companies working as one</div>
+      <div class="co"><span class="flag">RW</span><div><b>OLIU LOGISTICS LTD</b><span>Origin side: booking, loading, Kigali legs. Own book, own bank accounts, own staff. Bills the client.</span></div></div>
+      <div class="arrow">responsible company flips at Rusumo ↓</div>
+      <div class="co"><span class="flag">TZ</span><div><b>JIVAH LOGISTICS LTD</b><span>Transit side: Rusumo to ICD, port, ocean freight. Own book, own staff. Carries Tanzania-side costs.</span></div></div>
+      <div class="co" style="border-style:dashed"><span class="flag">+</span><div><b>A third company, if it comes</b><span>Uganda, Burundi, a port agency. Same rule: own book, own staff, its stretch of the journey.</span></div></div>
+    </div>
+  </div>
+  <h3>In a group, everyone works their own side</h3>
+  <div class="col"><p>This is the rule from the August systems analysis, section 06: a tick in the role table means <i>can act on your own side</i>, never <i>sees everything</i>. The owner is the only person who sees across companies.</p></div>
+  <div class="tablewrap"><table>
+    <tr><th>Who</th><th>Company</th><th>Sees</th><th>Never sees</th></tr>
+    <tr><td><b>Managing Director / owner</b></td><td>All</td><td>Both companies, the switcher, group overview, MD queue, both trails of a mismatch</td><td>—</td></tr>
+    <tr><td><b>Finance Officer, Kigali</b></td><td>OLIU</td><td>OLIU's costs, payments, beneficiaries, invoices, ledger</td><td>Anything booked under JIVAH; Operations' figure for any line</td></tr>
+    <tr><td><b>Finance Officer, Dar</b></td><td>JIVAH</td><td>JIVAH's costs, payments, beneficiaries, its own book</td><td>OLIU's book; the client invoice, which OLIU raises</td></tr>
+    <tr><td><b>Operations, Kigali</b></td><td>OLIU</td><td>Containers while they are on the Rwanda side</td><td>A container after it clears Rusumo: it leaves the working list, not just the edit rights</td></tr>
+    <tr><td><b>Operations and Transport, Dar</b></td><td>JIVAH</td><td>Containers from Rusumo to the vessel</td><td>Kigali legs and costs</td></tr>
+    <tr><td><b>Field Officer</b></td><td>One company</td><td>Tip entry for the boxes on their side</td><td>Everything else</td></tr>
+    <tr><td><b>Reporting Officer</b></td><td>Group or one company, as the owner sets</td><td>Read-only reports and audit trail for that scope</td><td>Buttons that write</td></tr>
+  </table></div>
+  <div class="col"><p>The container record itself never splits. It carries a responsible company that flips when the hand-over stage is confirmed, and that one flip moves the box between working lists, decides which book a cost defaults into, and produces the inter-company picture the owner sees in Group overview.</p>
+  <h3>Why this keeps the product flexible</h3>
+  <ul>
+    <li><b>Company count is a setting, not a product line.</b> A single-company tenant that opens a Tanzanian company moves to the group package by adding a company. Nothing is migrated. Pricing is left out of this analysis for now.</li>
+    <li><b>The six roles are the same in both packages.</b> A role is attached to one company, or to all for the owner. That is the only scoping rule, and it is set when a user is invited.</li>
+    <li><b>Per company you decide four things:</b> country and currency, bank accounts that print on invoices, who bills the client, and where the hand-over point is.</li>
+    <li><b>One screen, two behaviours.</b> The Shipments board, Payments queue and Invoices list filter by the signed-in user's company. The owner's switcher is the only element a single-company tenant never sees.</li>
+  </ul></div>
+  <h3>Two portals</h3>
+  <div class="cards">
+    <div class="card"><h3>Tenant portal · the forwarder</h3><p>All 29 screens of the original MIS, grouped under ten menus: Home, Shipments, Field payments, Payments, Invoices, Accounting, Reports, Checks, Notifications, Settings. The account carries the company and the role; there is nothing to pick after login.</p></div>
+    <div class="card"><h3>Platform portal · you</h3><p>Tenants as accounts, plans, billing with automatic reminders, onboarding progress, support tickets, health, releases. It sees counts, never contents. Looking inside a tenant needs its MD's approval and expires after four hours. That rule is the strongest sales argument to an owner-manager.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>6 · Six roles, kept as they are</h2>
+  <div class="roles">
+    <div class="role"><b>Managing Director</b><div class="start">starts on Dashboard</div><p>Everything, both companies. Rules on mismatches and the MD queue. Approves payments and bank-detail changes.</p></div>
+    <div class="role"><b>Operations Manager</b><div class="start">starts on Dashboard</div><p>Bookings, container records, legs, cost split, handoff. Approves payment requests. Sees invoices, not the pay screen.</p></div>
+    <div class="role"><b>Finance Officer</b><div class="start">starts on Needs payment</div><p>Blind entry, pay approved orders, invoices, beneficiaries, expenses, bank, payroll, ledger. Never sees Shipments.</p></div>
+    <div class="role"><b>Transport Coordinator</b><div class="start">starts on Transport leg</div><p>Trucks, drivers, legs, release, journey stages, cost split, tips. No payments, no invoices.</p></div>
+    <div class="role"><b>Field Officer</b><div class="start">starts on Tip entry</div><p>Phone tip entry and the container list. Nothing else is visible.</p></div>
+    <div class="role"><b>Reporting Officer</b><div class="start">starts on Reports</div><p>Read-only. Dashboard, containers, invoices, ledger, reports, audit trail. Buttons that write are greyed.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>7 · Every feature stands alone</h2>
+  <div class="col"><p>Section 09 of the systems analysis set the rule: a modular monolith, built so that removing a feature breaks nothing. Each feature owns its tables and its screens and talks to the others only through a small, named interface, an event such as <span class="mono">container.closed</span> or a lookup such as "cost entries for container X". No feature ever reads another feature's tables directly. The product keeps that rule and adds one more: a feature can be switched off per account, and switching it off hides screens, never deletes records.</p>
+  <h3>The test, in three questions</h3>
+  <ul>
+    <li><b>Remove the folder.</b> Does its sidebar entry disappear and everything else keep running? If another feature stops, the boundary was wrong.</li>
+    <li><b>Read the code.</b> Does the feature reach into another feature's tables? Then it must go through that feature's interface instead.</li>
+    <li><b>Switch it off for one account.</b> Do the records it already created stay readable in reports and the audit trail? They must.</li>
+  </ul></div>
+  <div class="tablewrap"><table>
+    <tr><th>Feature</th><th>Owns</th><th>Switch off per account?</th><th>What happens to the rest</th></tr>
+    <tr><td><b>Accounts &amp; companies</b></td><td>Account, companies, packages, feature switches</td><td><span class="pill bad">Spine</span></td><td>Everything is scoped by it; it is the one thing always on.</td></tr>
+    <tr><td><b>Identity &amp; roles</b></td><td>Users, six roles, company scoping, OTP</td><td><span class="pill bad">Spine</span></td><td>Always on.</td></tr>
+    <tr><td><b>Operations core</b></td><td>Booking, container, cost entry, handoff</td><td><span class="pill bad">Spine</span></td><td>Always on; every other feature hangs off the container record.</td></tr>
+    <tr><td><b>Audit trail</b></td><td>Append-only log</td><td><span class="pill bad">Spine</span></td><td>Always on; features write to it, nothing reads back except reports.</td></tr>
+    <tr><td><b>Transport legs</b></td><td>Trucks, hires, breakdowns, replacement legs</td><td><span class="pill ok">Yes</span></td><td>Costs can still be entered per container; the delay tag and replacement-leg gate stop.</td></tr>
+    <tr><td><b>Journey &amp; checkpoints</b></td><td>Stages, hand-over flip, optional checkpoint events</td><td><span class="pill ok">Yes</span></td><td>Single-company accounts have no hand-over; containers simply move booked → closed.</td></tr>
+    <tr><td><b>Facilitation payments (tips)</b></td><td>Tip entry, caps, offline outbox, tip ledger</td><td><span class="pill ok">Yes</span></td><td>Cost entries continue; reconciliation just has fewer lines to compare.</td></tr>
+    <tr><td><b>Payments &amp; beneficiaries</b></td><td>Requests, approvals, blind queue, floats, protected accounts</td><td><span class="pill ok">Yes</span></td><td>Costs stay recorded; nothing is marked paid in the system.</td></tr>
+    <tr><td><b>Invoices</b></td><td>AR/AP invoices, auto-built drafts, rate cards, aged AR</td><td><span class="pill ok">Yes</span></td><td>Containers close without revenue; P&amp;L shows cost only.</td></tr>
+    <tr><td><b>Reconciliation engine</b></td><td>Compare job, flags, rulings, MD queue</td><td><span class="pill ok">Yes</span></td><td>Reads Operations and Finance, owned by neither; off means no flags, nothing else changes.</td></tr>
+    <tr><td><b>Office expenses</b></td><td>Rent, utilities, recurring bills</td><td><span class="pill ok">Yes</span></td><td>Payment approvals untouched; the analysis uses exactly this example.</td></tr>
+    <tr><td><b>Payroll</b></td><td>Payslips through the same approval</td><td><span class="pill ok">Yes</span></td><td>Nothing else notices.</td></tr>
+    <tr><td><b>Ledger &amp; bank</b></td><td>Journals, period lock, statement matching</td><td><span class="pill ok">Yes</span></td><td>Accountant gets Excel exports instead.</td></tr>
+    <tr><td><b>Notifications</b></td><td>Bell, email, SMS, 07:00 digest</td><td><span class="pill ok">Yes</span></td><td>Features still raise events; nobody is told.</td></tr>
+    <tr><td><b>Reporting</b></td><td>Container P&amp;L, cash position, aged AR/AP, tip ledger</td><td><span class="pill ok">Yes</span></td><td>Reads from the others, owns nothing, so it can never break them.</td></tr>
+    <tr><td><b>Data import</b></td><td>Excel wizard, migration check</td><td><span class="pill ok">Yes</span></td><td>Used once, then hidden.</td></tr>
+    <tr><td><b>Ask the MIS</b></td><td>Plain-language questions over the reports</td><td><span class="pill ok">Yes</span></td><td>A convenience layer; never a source of truth, never authorises money.</td></tr>
+  </table></div>
+  <h3>How the code will be written</h3>
+  <div class="col"><ul>
+    <li><b>Built to resist attack.</b> Every request is checked on the server against the user's account, company and role; inputs validated, queries parameterised, secrets outside the code, dependencies pinned and checked, an OWASP top-ten review at every slice. No system is unhackable; this is the discipline that makes an attack expensive and visible.</li>
+    <li><b>Clean and easy to understand.</b> One language, one enforced style, small functions named in the business's own words, a folder per module with a short README. A future developer in Kigali should be able to read it without the author.</li>
+    <li><b>Efficient.</b> Paged and indexed lists, background jobs for anything slow, integer money arithmetic, fast pages on a phone connection.</li>
+    <li><b>Documented after every slice.</b> A plain-language slice note: what was built, how a request travels through the code, what was tested, what was left out, and the open questions. Read in order, the notes are the handover manual.</li>
+  </ul></div>
+  <h3>Room to grow</h3>
+  <div class="col"><ul>
+    <li><b>A new feature</b> is a new folder that subscribes to existing events. Fiscal receipts, a driver app, dispatch planning or the AI items from section 08 of the analysis would each arrive this way, without touching what exists.</li>
+    <li><b>A new country</b> is settings: currency, document checklist, stage names, checkpoint types. Nothing in the code knows the word Rwanda.</li>
+    <li><b>A new corridor</b> is a template of stages the owner picks or edits at set-up: Kigali to Dar export today, Kigali to Mombasa or an import route tomorrow.</li>
+    <li><b>A new company in an account</b> is a row, with its own book, bank accounts and staff, placed on the journey where it takes over.</li>
+  </ul></div>
+</section>
+
+<section>
+  <h2>8 · Set up once: how the companies work together</h2>
+  <div class="col"><p>When an account is created, the owner answers a short set of questions. The answers configure the system; none of them is code, and the owner can change every one later in Settings. This is what makes one product fit a single Kigali forwarder and a Kigali plus Dar es Salaam group at the same time.</p></div>
+  <div class="tablewrap"><table>
+    <tr><th>Question at set-up</th><th>Typical answers</th><th>What it configures</th></tr>
+    <tr><td><b>How many companies work together in this account?</b></td><td>One · Two or more</td><td>The package. One company hides the switcher and the hand-over. Two or more creates a company tag on every container, cost and invoice.</td></tr>
+    <tr><td><b>For each company: name, country, currency, TIN, address, logo, bank accounts</b></td><td>OLIU · Rwanda · RWF/USD · Equity, I&amp;M, BK</td><td>A separate book per company and the header and bank blocks that print on its invoices.</td></tr>
+    <tr><td><b>Which company bills the client?</b></td><td>OLIU</td><td>Which company raises AR invoices and whose rate card the auto-built draft uses.</td></tr>
+    <tr><td><b>Where does a container change hands?</b></td><td>Rusumo border · the port · nowhere</td><td>The stage at which the responsible company flips, moving the box between working lists and books.</td></tr>
+    <tr><td><b>Which corridor and stages?</b></td><td>Kigali → Dar export template · import · custom</td><td>The columns of the Shipments board and the journey stages each company's staff see.</td></tr>
+    <tr><td><b>Which features are on?</b></td><td>Tips ✓ · Checkpoints ✓ · Office expenses ✓ · Payroll ✗ · Ledger &amp; bank ✗ · Reconciliation ✓</td><td>The sidebar, per company. Section 7 says what each switch does and does not affect.</td></tr>
+    <tr><td><b>Who holds which role, in which company?</b></td><td>Aline Uwase · Finance Officer · OLIU</td><td>Visibility. A person works one company's side; the owner works across all.</td></tr>
+    <tr><td><b>How is blind entry arranged on each side?</b></td><td>Own Finance person · Kigali Finance enters from scanned invoices</td><td>Who provides the second trail that the compare job pairs with Operations' entry. This is open decision Q2 and the Dar question from the mockup.</td></tr>
+    <tr><td><b>Caps and thresholds</b></td><td>Tip ceiling RWF 50,000 · monthly cap · MFA above USD 2,000</td><td>Rules the Payments and Tips features enforce.</td></tr>
+    <tr><td><b>Invoice numbering and rate cards</b></td><td>Prefix KGLDAR- · USD 3,600 per 40FT for Space Mining</td><td>The gapless sequence and the lines of the auto-built invoice.</td></tr>
+    <tr><td><b>Document checklist</b></td><td>Minerals export (RMB, ICGLR, ReSW, TZ bond, TPA, B/L) · general cargo · custom</td><td>What the container record expects before stages can be confirmed.</td></tr>
+    <tr><td><b>Who is told what, and how?</b></td><td>Overdue invoice → Finance, MD · 07:00 digest → owner on WhatsApp</td><td>The notification matrix and the digest time.</td></tr>
+  </table></div>
+  <div class="col"><p>Two consequences. The platform never needs to know a tenant's business to onboard it; the questions do the work. And an account can change shape without a migration: a single company that adds a Tanzanian partner answers the first question again, adds a company row, and picks a hand-over point.</p></div>
+</section>
+
+<section>
+  <h2>9 · What is deliberately left out</h2>
+  <div class="col"><ul>
+    <li><b>No tax-authority integration.</b> No EBM, no VFD, no eTIMS. Invoices are numbered PDFs emailed from the system. A fiscal receipt, where a company issues one, is a document filed by hand. This can come later as its own module if a tenant asks and the certification is worth it.</li>
+    <li><b>No shipping-line, port or bank APIs.</b> Everything is entered by a person; the system's job is to stop the same number being typed with two meanings.</li>
+    <li><b>No driver app, dispatch planning or CRM.</b> The field screen is for the person who pays at a roadblock, nothing more.</li>
+    <li><b>Accounting is a module switched on later.</b> Ledger, bank matching, payroll and IFRS statements come as a module from any month-start. Until then the accountant gets clean Excel exports.</li>
+  </ul></div>
+</section>
+
+<section>
+  <h2>10 · What could go wrong</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Risk</th><th>How serious</th><th>What to do about it</th></tr>
+    <tr><td>Blind entry does not work in Dar es Salaam because one person holds both trails</td><td><span class="pill bad">High</span></td><td>Decide at the workshop. Either a second person on the JIVAH side, or the Kigali Finance Officer enters Tanzania costs from scanned invoices.</td></tr>
+    <tr><td>Field staff stop logging tips when nobody is watching</td><td><span class="pill warn">Medium</span></td><td>Keep the screen at three taps. Caps and the tip ledger make a missing tip visible to the MD within a day.</td></tr>
+    <tr><td>The Excel history is dirtier than expected and migration slips</td><td><span class="pill warn">Medium</span></td><td>The import wizard returns a fix list; the client cleans, the team loads. A slip of more than five working days before 13 November moves JIVAH to 11 January.</td></tr>
+    <tr><td>Market is smaller than hoped</td><td><span class="pill warn">Medium</span></td><td>Sell the group package first: forwarders with a Rwandan and a Tanzanian company feel the two-book pain most. The single-company package is the volume product; count both before the packages are final.</td></tr>
+    <tr><td>Data must stay in Rwanda; Tanzanian tenants want it in Tanzania</td><td><span class="pill warn">Medium</span></td><td>Second region in Dar when the third Tanzanian tenant signs. Until then the processing agreement names Kigali.</td></tr>
+    <tr><td>Contract gives the IP to OLIU and there is no product to sell</td><td><span class="pill bad">High</span></td><td>Settle before signature: you keep the platform, OLIU gets a perpetual licence and a design-partner discount. Parked for now at your request, but it decides everything in section 5.</td></tr>
+    <tr><td>The owner is the only person who can rule on flags</td><td><span class="pill warn">Medium</span></td><td>Allow a trusted delegate for low-value flags; keep bank-detail changes and repeat payments with the MD.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>11 · Feasibility scorecard</h2>
+  <div class="score">
+    <div class="lab">Technical</div><div class="track"><div class="fill" style="width:88%"></div></div><div class="v">strong</div>
+    <div class="why">Ordinary web application, manual entry, no integrations. Tenant isolation and the compare job are well-understood work. Three developers for fourteen weeks is tight but was already planned.</div>
+    <div class="lab">Need</div><div class="track"><div class="fill" style="width:92%"></div></div><div class="v">strong</div>
+    <div class="why">The leaks are real and priced; the two October invoices show the manual work. Owners of small forwarders feel every one of the four leaks.</div>
+    <div class="lab">Market</div><div class="track"><div class="fill" style="width:55%"></div></div><div class="v">unproven</div>
+    <div class="why">Freight forwarders on the Central Corridor number in the low hundreds across Rwanda, Tanzania, Uganda and Burundi. Enough for a profitable niche, not for growth capital. Count them.</div>
+    <div class="lab">Team</div><div class="track"><div class="fill" style="width:60%"></div></div><div class="v">thin</div>
+    <div class="why">After go-live the platform needs one person on support and one on the product, plus someone who sells to owners in Kinyarwanda and Swahili. Today that is mostly you.</div>
+    <div class="lab">Flexibility</div><div class="track"><div class="fill" style="width:85%"></div></div><div class="v">strong</div>
+    <div class="why">Two packages, one codebase. Company count, hand-over point and per-company visibility are answers given at set-up, and every feature can be switched off for an account without touching the others. A client can start single and grow into a group without a migration.</div>
+    <div class="lab">Timing</div><div class="track"><div class="fill" style="width:80%"></div></div><div class="v">good</div>
+    <div class="why">OLIU live 14 December, JIVAH 21 December. Second tenant from February. Product decisions can wait until the pilot shows what owners actually ask for.</div>
+  </div>
+  <div class="verdict">
+    <p><b>Verdict: feasible, as a focused niche product, provided two things happen.</b></p>
+    <p>First, build OLIU's system on a tenant-aware foundation now, with the company scoping from section 06 of the systems analysis built in from day one, so the second customer is configuration rather than a rewrite and both packages ship from the same code. Second, keep the platform's intellectual property when the contract is signed. Everything else, from the second region to the accounting module, can follow the customers.</p>
+  </div>
+</section>
+
+<section>
+  <h2>12 · The next ninety days</h2>
+  <div class="col"><ul>
+    <li><b>By 18 September (passed):</b> contract signed with the IP clause settled. If it is not, re-open it before milestone 2.</li>
+    <li><b>Workshop, 22 to 23 September:</b> rule on blind entry in Dar, the KGLDAR prefix, the USD 3,600 flat rate, and who holds the phone in the field.</li>
+    <li><b>Phase 2, by 13 November:</b> invoices built from departed containers, payments, legs. This is the demo to show a second prospect.</li>
+    <li><b>Pilot, 16 November to 4 December:</b> three OLIU users on live bookings. Measure the eight indicators in the proposal; they become the sales sheet.</li>
+    <li><b>Go-live, 14 and 21 December.</b> Then: list every forwarder with companies on both sides of Rusumo for the group package, and every single-company forwarder in Kigali for the other, and call the first five of each in January.</li>
+  </ul></div>
+</section>
+
+<footer>Corridor MIS is a working name. All company, container and invoice details come from the project documents in the OLIU folder; tenants other than OLIU · JIVAH and Transvera in the mockups are illustrative.</footer>
+</div>
