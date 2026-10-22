@@ -16,9 +16,11 @@
     "db:seed": "npm run db:seed --workspace api",
     "test": "npm run test --workspace api",
     "lint": "npm run lint --workspaces --if-present",
-    "format": "prettier --write \"**/*.{ts,vue,js,json,md,yml}\""
+    "format": "prettier --write \"**/*.{ts,vue,js,json,md,yml}\"",
+    "docs:pdf": "node docs/build-pdf.mjs"
   },
   "devDependencies": {
+    "marked": "^18.1.1",
     "prettier": "^3.6.2"
   },
   "engines": {
