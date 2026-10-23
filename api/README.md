@@ -5,7 +5,7 @@ Express 5 + Prisma + PostgreSQL. Every business rule lives here; the web app onl
 ```
 npm run db:start         local PostgreSQL (PGlite) on 127.0.0.1:5433 — keep it running
 npm run db:migrate       apply migrations
-npm run db:seed          OLIU · JIVAH demo account, twelve people, password Oliu-demo-2026
+npm run db:seed          OLIU · JIVAH demo account, twelve people, password demo
 npm run dev              API on :3001 with reload; dev inbox at /dev/mail
 npm test                 12 tests on a fresh in-memory database (~8 s)
 npm run lint · typecheck

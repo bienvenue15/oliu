@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import argon2 from 'argon2';
 
 const prisma = new PrismaClient();
-export const DEMO_PASSWORD = 'Oliu-demo-2026';
+export const DEMO_PASSWORD = 'demo'; // demo logins only; passwords set through the app still need 10+ characters
 
 async function main() {
   const exists = await prisma.account.findFirst({ where: { name: 'OLIU · JIVAH' } });

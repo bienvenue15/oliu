@@ -90,7 +90,7 @@ npm run dev:api       (second window)
 npm run dev:web       (third window)
 ```
 
-Open http://localhost:3000. Password for every demo person: `Oliu-demo-2026`.
+Open http://localhost:3000. Password for every demo person: `demo`.
 The six-digit code is at http://localhost:3001/dev/mail (nothing leaves your machine in development).
 
 | Sign in as | E-mail | What you should see |
@@ -107,7 +107,7 @@ Try `/setup` to create a second, single-company account: it will have one compan
 
 ## 6. Your test road — seven runs, tick each one
 
-Password for every demo person: `Oliu-demo-2026`. Codes land in http://localhost:3001/dev/mail (refresh it).
+Password for every demo person: `demo`. Codes land in http://localhost:3001/dev/mail (refresh it).
 
 | # | Run | Sign in as | What must happen | ✓ |
 |---|---|---|---|---|
