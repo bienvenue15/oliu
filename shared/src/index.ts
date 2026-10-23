@@ -107,7 +107,11 @@ export const MENUS: readonly Menu[] = [
       { key: 'ben', label: 'Beneficiaries', slice: 6 },
     ],
   },
-  { key: 'inv', label: 'Invoices', screens: [{ key: 'inv', label: 'Invoices & clients', slice: 8 }] },
+  {
+    key: 'inv',
+    label: 'Invoices',
+    screens: [{ key: 'inv', label: 'Invoices & clients', slice: 8 }],
+  },
   {
     key: 'acc',
     label: 'Accounting',
@@ -128,7 +132,11 @@ export const MENUS: readonly Menu[] = [
       { key: 'aud', label: 'Audit trail', slice: 1 },
     ],
   },
-  { key: 'ntf', label: 'Notifications', screens: [{ key: 'ntf', label: 'Notifications & alerts', slice: 9 }] },
+  {
+    key: 'ntf',
+    label: 'Notifications',
+    screens: [{ key: 'ntf', label: 'Notifications & alerts', slice: 9 }],
+  },
   {
     key: 'set',
     label: 'Settings',
@@ -145,11 +153,52 @@ export const MENUS: readonly Menu[] = [
 export const ROLE_SCREENS: Record<Role, '*' | readonly string[]> = {
   MD: '*',
   OPS_MANAGER: [
-    'dash', 'ask', 'book', 'cont', 'cost', 'leg', 'rel', 'journey', 'csplit', 'handoff', 'tiplat',
-    'queue', 'inv', 'ben', 'exp', 'rep', 'ntf', 'aud',
+    'dash',
+    'ask',
+    'book',
+    'cont',
+    'cost',
+    'leg',
+    'rel',
+    'journey',
+    'csplit',
+    'handoff',
+    'tiplat',
+    'queue',
+    'inv',
+    'ben',
+    'exp',
+    'rep',
+    'ntf',
+    'aud',
   ],
-  FINANCE_OFFICER: ['dash', 'ask', 'queue', 'cashier', 'inv', 'ben', 'exp', 'bank', 'pay', 'gl', 'rep', 'ntf'],
-  TRANSPORT_COORDINATOR: ['dash', 'ask', 'cont', 'cost', 'leg', 'rel', 'journey', 'csplit', 'tip', 'tiplat', 'ntf'],
+  FINANCE_OFFICER: [
+    'dash',
+    'ask',
+    'queue',
+    'cashier',
+    'inv',
+    'ben',
+    'exp',
+    'bank',
+    'pay',
+    'gl',
+    'rep',
+    'ntf',
+  ],
+  TRANSPORT_COORDINATOR: [
+    'dash',
+    'ask',
+    'cont',
+    'cost',
+    'leg',
+    'rel',
+    'journey',
+    'csplit',
+    'tip',
+    'tiplat',
+    'ntf',
+  ],
   FIELD_OFFICER: ['tip', 'tiplat', 'cont', 'ntf'],
   REPORTING_OFFICER: ['dash', 'ask', 'cont', 'cost', 'inv', 'gl', 'rep', 'ntf', 'aud'],
 };
@@ -161,9 +210,10 @@ export function canOpenScreen(role: Role, screenKey: string): boolean {
 
 /** The menus a role sees, with only the screens it may open. Empty menus disappear. */
 export function menusForRole(role: Role): Menu[] {
-  return MENUS.map((m) => ({ ...m, screens: m.screens.filter((s) => canOpenScreen(role, s.key)) })).filter(
-    (m) => m.screens.length > 0,
-  );
+  return MENUS.map((m) => ({
+    ...m,
+    screens: m.screens.filter((s) => canOpenScreen(role, s.key)),
+  })).filter((m) => m.screens.length > 0);
 }
 
 /** Where a role lands after login — copied from the previous MIS. */
@@ -234,7 +284,12 @@ export const accountSetupInput = z
     handoverStage: z.enum(STAGES).nullable().default(null),
     owner: z.object({
       name: z.string().trim().min(2).max(120),
-      email: z.string().trim().email().max(200).transform((e) => e.toLowerCase()),
+      email: z
+        .string()
+        .trim()
+        .email()
+        .max(200)
+        .transform((e) => e.toLowerCase()),
       password,
     }),
   })
@@ -242,22 +297,47 @@ export const accountSetupInput = z
     const mains = v.companies.filter((c) => c.kind === 'MAIN');
     const partners = v.companies.filter((c) => c.kind === 'PARTNER');
     const billers = v.companies.filter((c) => c.billsClient);
-    if (mains.length !== 1) ctx.addIssue({ code: 'custom', path: ['companies'], message: 'Exactly one MAIN company' });
+    if (mains.length !== 1)
+      ctx.addIssue({ code: 'custom', path: ['companies'], message: 'Exactly one MAIN company' });
     if (billers.length !== 1)
-      ctx.addIssue({ code: 'custom', path: ['companies'], message: 'Exactly one company bills the client' });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['companies'],
+        message: 'Exactly one company bills the client',
+      });
     if (billers[0] && billers[0].kind === 'BRANCH')
-      ctx.addIssue({ code: 'custom', path: ['companies'], message: 'A branch cannot bill; its parent company does' });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['companies'],
+        message: 'A branch cannot bill; its parent company does',
+      });
     if (v.package === 'SINGLE' && partners.length > 0)
-      ctx.addIssue({ code: 'custom', path: ['package'], message: 'A single-company account has no partner companies' });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['package'],
+        message: 'A single-company account has no partner companies',
+      });
     if (v.package === 'GROUP' && partners.length === 0)
-      ctx.addIssue({ code: 'custom', path: ['package'], message: 'A group needs at least one partner company' });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['package'],
+        message: 'A group needs at least one partner company',
+      });
     if (partners.length > 0 && !v.handoverStage)
-      ctx.addIssue({ code: 'custom', path: ['handoverStage'], message: 'A group needs a hand-over stage' });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['handoverStage'],
+        message: 'A group needs a hand-over stage',
+      });
     v.companies.forEach((c, i) => {
       if (c.kind === 'BRANCH') {
         const p = c.parentIndex === undefined ? undefined : v.companies[c.parentIndex];
         if (!p || p.kind === 'BRANCH' || c.parentIndex === i)
-          ctx.addIssue({ code: 'custom', path: ['companies', i, 'parentIndex'], message: 'A branch needs a parent company' });
+          ctx.addIssue({
+            code: 'custom',
+            path: ['companies', i, 'parentIndex'],
+            message: 'A branch needs a parent company',
+          });
       }
     });
   });
@@ -268,17 +348,33 @@ export type AccountSetupInput = z.infer<typeof accountSetupInput>;
 // ---------------------------------------------------------------------------
 export const inviteUserInput = z.object({
   name: z.string().trim().min(2).max(120),
-  email: z.string().trim().email().max(200).transform((e) => e.toLowerCase()),
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(200)
+    .transform((e) => e.toLowerCase()),
   role: z.enum(ROLES),
   /** null = all companies; only allowed for roles that span the account. */
   companyId: z.string().uuid().nullable(),
   /** The department mailbox the one-time code goes to; defaults to the user's own e-mail. */
-  otpMailbox: z.string().trim().email().max(200).transform((e) => e.toLowerCase()).optional(),
+  otpMailbox: z
+    .string()
+    .trim()
+    .email()
+    .max(200)
+    .transform((e) => e.toLowerCase())
+    .optional(),
 });
 export type InviteUserInput = z.infer<typeof inviteUserInput>;
 
 export const loginInput = z.object({
-  email: z.string().trim().email().max(200).transform((e) => e.toLowerCase()),
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(200)
+    .transform((e) => e.toLowerCase()),
   password: z.string().min(1).max(200),
 });
 export const otpInput = z.object({
@@ -292,4 +388,195 @@ export const bankAccountInput = z.object({
   number: z.string().trim().min(4).max(40),
   currency: z.enum(CURRENCIES),
   swift: z.string().trim().max(20).optional().default(''),
+});
+
+// ---------------------------------------------------------------------------
+// Containers — ISO 6346 (roadmap slice 2). The container number is the unit of truth of the system:
+// four letters (owner code + U), six digits, one check digit. A typo is caught before it is saved.
+// ---------------------------------------------------------------------------
+/** Letter values of ISO 6346: A = 10, then one more per letter, skipping every multiple of 11. */
+const ISO6346_LETTER: Record<string, number> = {};
+{
+  let v = 10;
+  for (const c of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+    if (v % 11 === 0) v++;
+    ISO6346_LETTER[c] = v++;
+  }
+}
+
+/** The check digit for the first ten characters of a container number. */
+export function containerCheckDigit(tenChars: string): number {
+  let sum = 0;
+  for (let i = 0; i < 10; i++) {
+    const c = tenChars[i]!;
+    sum += (c >= '0' && c <= '9' ? Number(c) : ISO6346_LETTER[c]!) * 2 ** i;
+  }
+  return (sum % 11) % 10;
+}
+
+export interface ContainerNumberCheck {
+  /** Upper case, spaces and hyphens removed. */
+  number: string;
+  ok: boolean;
+  /** When the shape is right but the last digit is wrong: the digit it should be. */
+  expectedDigit?: number;
+  /** Plain-language reason when not ok. */
+  reason?: string;
+}
+
+/** Normalises what a person typed and says whether it is a valid container number, and if not, why. */
+export function checkContainerNumber(raw: string): ContainerNumberCheck {
+  const number = raw.toUpperCase().replace(/[\s-]/g, '');
+  if (!/^[A-Z]{4}\d{7}$/.test(number)) {
+    return { number, ok: false, reason: 'Four letters then seven digits, e.g. PCIU 932093 6' };
+  }
+  if (number[3] !== 'U' && number[3] !== 'J' && number[3] !== 'Z') {
+    return { number, ok: false, reason: 'The fourth letter is U for a freight container' };
+  }
+  const expectedDigit = containerCheckDigit(number);
+  if (expectedDigit !== Number(number[10])) {
+    return {
+      number,
+      ok: false,
+      expectedDigit,
+      reason: `Check digit should be ${expectedDigit}, not ${number[10]}`,
+    };
+  }
+  return { number, ok: true };
+}
+
+export const CONTAINER_SIZES = ['20FT', '40FT', '40HC', '45FT'] as const;
+export type ContainerSize = (typeof CONTAINER_SIZES)[number];
+
+/** Suggestions only; the cargo field accepts any text. */
+export const CARGO_SUGGESTIONS = [
+  'TANTALITE',
+  'CASSITERITE',
+  'WOLFRAMITE',
+  'LITHIUM',
+  'BERYLLIUM',
+  'TIN',
+  'COPPER',
+  'GENERAL CARGO',
+] as const;
+
+/** A container number as typed; comes out normalised, or fails with the reason. */
+export const containerNumber = z
+  .string()
+  .trim()
+  .min(11)
+  .max(16)
+  .transform((raw, ctx) => {
+    const c = checkContainerNumber(raw);
+    if (!c.ok) {
+      ctx.addIssue({ code: 'custom', message: c.reason! });
+      return z.NEVER;
+    }
+    return c.number;
+  });
+
+function usableRegex(p: string): boolean {
+  if (!p) return true;
+  try {
+    new RegExp(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const shippingLineInput = z.object({
+  name: z.string().trim().min(2).max(80),
+  /** Owner codes this line's boxes usually carry (PCIU, PIDU…). Another code is accepted with a note. */
+  usualPrefixes: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z]{4}$/, 'Four letters'),
+    )
+    .max(20)
+    .default([]),
+  /** What this line's booking numbers look like, said to the person typing one. */
+  referenceHint: z.string().trim().max(80).default(''),
+  /** A regular expression the booking number must match; empty accepts anything. */
+  referencePattern: z
+    .string()
+    .trim()
+    .max(120)
+    .default('')
+    .refine(usableRegex, 'Not a usable pattern'),
+});
+export type ShippingLineInput = z.infer<typeof shippingLineInput>;
+
+export const clientInput = z.object({
+  /** The short name used on screens, e.g. Space Mining. */
+  name: z.string().trim().min(2).max(80),
+  legalName: z.string().trim().max(160).default(''),
+  tin: z.string().trim().max(40).default(''),
+  address: z.string().trim().max(240).default(''),
+  country: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/, 'Two-letter country code')
+    .or(z.literal(''))
+    .default(''),
+});
+export type ClientInput = z.infer<typeof clientInput>;
+
+export const containerInput = z.object({
+  number: containerNumber,
+  size: z.enum(CONTAINER_SIZES),
+  /** The client's lot number for this box, as on the paper. */
+  lot: z.string().trim().max(60).default(''),
+});
+export type ContainerInput = z.infer<typeof containerInput>;
+
+function noRepeats(containers: { number: string }[], ctx: z.RefinementCtx) {
+  const seen = new Set<string>();
+  containers.forEach((c, i) => {
+    if (seen.has(c.number))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['containers', i, 'number'],
+        message: 'Typed twice on this booking',
+      });
+    seen.add(c.number);
+  });
+}
+
+export const bookingInput = z
+  .object({
+    shippingLineId: z.string().uuid(),
+    /** The shipping line's booking number, e.g. CMDU4471023. */
+    reference: z.string().trim().toUpperCase().min(3).max(40),
+    clientId: z.string().uuid(),
+    cargo: z.string().trim().toUpperCase().min(2).max(60),
+    destination: z.string().trim().max(120).default(''),
+    vessel: z.string().trim().toUpperCase().max(80).default(''),
+    voyage: z.string().trim().toUpperCase().max(40).default(''),
+    containers: z.array(containerInput).min(1).max(100),
+  })
+  .superRefine((v, ctx) => noRepeats(v.containers, ctx));
+export type BookingInput = z.infer<typeof bookingInput>;
+
+/** The fields a booking may fill in later, by the company that made it. */
+export const bookingPatch = z.object({
+  cargo: z.string().trim().toUpperCase().min(2).max(60).optional(),
+  destination: z.string().trim().max(120).optional(),
+  vessel: z.string().trim().toUpperCase().max(80).optional(),
+  voyage: z.string().trim().toUpperCase().max(40).optional(),
+});
+
+export const addContainersInput = z
+  .object({ containers: z.array(containerInput).min(1).max(100) })
+  .superRefine((v, ctx) => noRepeats(v.containers, ctx));
+
+/** How the MD rules on a duplicate container: keep the new entry, withdraw it, or correct its number. */
+export const DUPLICATE_RESOLUTIONS = ['KEEP_NEW', 'WITHDRAW_NEW', 'CORRECT_NUMBER'] as const;
+export const duplicateResolution = z.object({
+  resolution: z.enum(DUPLICATE_RESOLUTIONS),
+  number: containerNumber.optional(),
 });

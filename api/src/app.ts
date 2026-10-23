@@ -12,6 +12,7 @@ import { attachSession } from './middleware/auth.ts';
 import { identityRouter } from './modules/identity/routes.ts';
 import { accountsRouter } from './modules/accounts/routes.ts';
 import { auditRouter } from './modules/audit/routes.ts';
+import { shipmentsRouter } from './modules/shipments/routes.ts';
 import { devRouter } from './modules/dev/routes.ts';
 
 export function createApp() {
@@ -27,6 +28,7 @@ export function createApp() {
   app.use('/api/auth', identityRouter);
   app.use('/api', accountsRouter);
   app.use('/api/audit', auditRouter);
+  app.use('/api', shipmentsRouter);
   if (!config.isProd) app.use('/dev', devRouter);
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

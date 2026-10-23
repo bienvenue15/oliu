@@ -8,7 +8,7 @@
  */
 import type { NextFunction, Request, Response } from 'express';
 import { parse as parseCookie } from 'cookie';
-import { ROLE_PERMISSIONS, type Permission, type Role } from '@oliu/shared';
+import { canOpenScreen, ROLE_PERMISSIONS, type Permission, type Role } from '@oliu/shared';
 import { prisma, type Scope } from '../db.ts';
 import { verifySignedSessionId } from '../lib/crypto.ts';
 import { forbidden, unauthorized } from '../lib/errors.ts';
@@ -39,7 +39,10 @@ export async function attachSession(req: Request, _res: Response, next: NextFunc
     let activeCompanyId: string | null = null;
     const wanted = req.header('x-company');
     if (u.companyId === null && wanted) {
-      const ok = await prisma.company.findFirst({ where: { id: wanted, accountId: u.accountId }, select: { id: true } });
+      const ok = await prisma.company.findFirst({
+        where: { id: wanted, accountId: u.accountId },
+        select: { id: true },
+      });
       if (!ok) throw forbidden('That company is not in your account');
       activeCompanyId = ok.id;
     }
@@ -79,6 +82,16 @@ export function requirePermission(p: Permission) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.scope) return next(unauthorized());
     if (!ROLE_PERMISSIONS[req.scope.role as Role].includes(p)) return next(forbidden());
+    next();
+  };
+}
+
+/** The route belongs to a screen; only roles that may open that screen may call it. */
+export function requireScreen(screenKey: string) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.scope) return next(unauthorized());
+    if (!canOpenScreen(req.scope.role as Role, screenKey))
+      return next(forbidden('This screen is not visible to your role'));
     next();
   };
 }

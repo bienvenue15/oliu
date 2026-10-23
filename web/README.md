@@ -10,7 +10,7 @@ npm run dev     http://localhost:3000
 
 - `pages/login.vue`, `setup.vue`, `set-password.vue`, `forgot.vue` — public
 - `pages/app/[screen].vue` — one route per mockup screen key; unbuilt screens say which slice brings them
-- `components/Screen*.vue` — the built screens (slice 1: Users, Company, Audit)
+- `components/Screen*.vue` — the built screens (slice 1: Users, Company, Audit · slice 2: Booking, Containers)
 - `composables/useSession.ts` — `me`, the company switcher, `useApi()` with the `X-Company` header
 - `assets/app.css` — the mockup's tokens and components, reduced to what is used
 - `server/routes/__dev/` — development-only helpers, refused in production

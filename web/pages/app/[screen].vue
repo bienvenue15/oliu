@@ -7,33 +7,55 @@ import type { Component } from 'vue';
 import ScreenUsers from '~/components/ScreenUsers.vue';
 import ScreenCompany from '~/components/ScreenCompany.vue';
 import ScreenAudit from '~/components/ScreenAudit.vue';
+import ScreenBooking from '~/components/ScreenBooking.vue';
+import ScreenContainers from '~/components/ScreenContainers.vue';
 definePageMeta({ layout: 'app', middleware: 'auth' });
 const route = useRoute();
 const { me } = useSession();
 const key = computed(() => String(route.params.screen));
 const screen = computed(() => {
-  for (const m of me.value?.menus ?? []) for (const s of m.screens) if (s.key === key.value) return { ...s, menu: m };
+  for (const m of me.value?.menus ?? [])
+    for (const s of m.screens) if (s.key === key.value) return { ...s, menu: m };
   return null;
 });
-const built: Record<string, Component> = { adm: ScreenUsers, sub: ScreenCompany, aud: ScreenAudit };
+const built: Record<string, Component> = {
+  adm: ScreenUsers,
+  sub: ScreenCompany,
+  aud: ScreenAudit,
+  book: ScreenBooking,
+  cont: ScreenContainers,
+};
 </script>
 
 <template>
   <div>
     <div v-if="!screen" class="soon">
-      <div style="font-size:40px">🚫</div>
+      <div style="font-size: 40px">🚫</div>
       <h2>This screen is not visible to your role</h2>
       <p>Signed in as {{ me?.user.name }} · {{ me?.user.roleLabel }}.</p>
     </div>
     <template v-else>
       <div v-if="screen.menu.screens.length > 1" class="sub">
-        <NuxtLink v-for="s in screen.menu.screens" :key="s.key" :to="`/app/${s.key}`" :class="{ on: s.key === key }">{{ s.label }}</NuxtLink>
+        <NuxtLink
+          v-for="s in screen.menu.screens"
+          :key="s.key"
+          :to="`/app/${s.key}`"
+          :class="{ on: s.key === key }"
+          >{{ s.label }}</NuxtLink
+        >
       </div>
       <component :is="built[key]" v-if="built[key]" />
       <div v-else class="soon">
-        <div style="font-size:40px">🚧</div>
+        <div style="font-size: 40px">🚧</div>
         <h2>{{ screen.label }}</h2>
-        <p>{{ screen.slice === 99 ? 'Comes as its own slice after the import.' : `Switched on by slice ${screen.slice} of the build road.` }} Nothing to do here yet.</p>
+        <p>
+          {{
+            screen.slice === 99
+              ? 'Comes as its own slice after the import.'
+              : `Switched on by slice ${screen.slice} of the build road.`
+          }}
+          Nothing to do here yet.
+        </p>
       </div>
     </template>
   </div>

@@ -7,7 +7,7 @@ npm run db:start         local PostgreSQL (PGlite) on 127.0.0.1:5433 — keep it
 npm run db:migrate       apply migrations
 npm run db:seed          OLIU · JIVAH demo account, twelve people, password demo
 npm run dev              API on :3001 with reload; dev inbox at /dev/mail
-npm test                 12 tests on a fresh in-memory database (~8 s)
+npm test                 22 tests on a fresh in-memory database (~15 s)
 npm run lint · typecheck
 ```
 

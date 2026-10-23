@@ -27,6 +27,11 @@ model Account {
   users         User[]
   featureSwitches FeatureSwitch[]
   auditEvents   AuditEvent[]
+  shippingLines ShippingLine[]
+  clients       Client[]
+  bookings      Booking[]
+  containers    Container[]
+  mdQueueItems  MdQueueItem[]
 }
 
 enum Package {
@@ -60,6 +65,7 @@ model Company {
 
   bankAccounts BankAccount[]
   users        User[]
+  bookings     Booking[]
 
   @@index([accountId])
 }
@@ -215,4 +221,126 @@ enum Stage {
   ICD
   PORT
   OCEAN_FREIGHT
+}
+
+// ---------------------------------------------------------------- shipments (slice 2)
+
+/// A carrier. Its booking numbers have a shape; its boxes usually carry certain owner codes.
+model ShippingLine {
+  id               String   @id @default(uuid()) @db.Uuid
+  accountId        String   @db.Uuid
+  account          Account  @relation(fields: [accountId], references: [id])
+  name             String
+  /// Owner codes (the first four letters) this line's boxes usually carry. Another code is accepted with a note.
+  usualPrefixes    String[] @default([])
+  referenceHint    String   @default("")
+  /// A regular expression a booking number must match; empty accepts anything.
+  referencePattern String   @default("")
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  bookings Booking[]
+
+  @@unique([accountId, name])
+}
+
+/// Who is shipped for and, from slice 8, invoiced.
+model Client {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @db.Uuid
+  account   Account  @relation(fields: [accountId], references: [id])
+  name      String
+  legalName String   @default("")
+  tin       String   @default("")
+  address   String   @default("")
+  country   String   @default("") @db.VarChar(2)
+  createdAt DateTime @default(now())
+
+  bookings Booking[]
+
+  @@unique([accountId, name])
+}
+
+/// A list of boxes under one shipping-line booking number, made by one company of the account.
+model Booking {
+  id             String        @id @default(uuid()) @db.Uuid
+  accountId      String        @db.Uuid
+  account        Account       @relation(fields: [accountId], references: [id])
+  companyId      String        @db.Uuid
+  company        Company       @relation(fields: [companyId], references: [id])
+  shippingLineId String        @db.Uuid
+  shippingLine   ShippingLine  @relation(fields: [shippingLineId], references: [id])
+  clientId       String        @db.Uuid
+  client         Client        @relation(fields: [clientId], references: [id])
+  /// The shipping line's booking number.
+  reference      String
+  cargo          String
+  destination    String        @default("")
+  vessel         String        @default("")
+  voyage         String        @default("")
+  status         BookingStatus @default(BOOKED)
+  createdById    String        @db.Uuid
+  createdAt      DateTime      @default(now())
+
+  containers Container[]
+
+  @@unique([accountId, reference])
+  @@index([accountId, companyId, createdAt])
+}
+
+enum BookingStatus {
+  BOOKED
+}
+
+/// One box. An account holds one ACTIVE record per number (partial unique index, see the migration);
+/// a second entry is saved as a DUPLICATE beside it and goes to the MD.
+model Container {
+  id            String          @id @default(uuid()) @db.Uuid
+  accountId     String          @db.Uuid
+  account       Account         @relation(fields: [accountId], references: [id])
+  bookingId     String          @db.Uuid
+  booking       Booking         @relation(fields: [bookingId], references: [id])
+  number        String          @db.VarChar(11)
+  size          String          @db.VarChar(5)
+  lot           String          @default("")
+  stage         Stage           @default(BOOKED)
+  status        ContainerStatus @default(ACTIVE)
+  /// For a DUPLICATE: the ACTIVE record it collided with.
+  duplicateOfId String?         @db.Uuid
+  createdById   String          @db.Uuid
+  createdAt     DateTime        @default(now())
+
+  @@index([accountId, number])
+  @@index([bookingId])
+}
+
+enum ContainerStatus {
+  ACTIVE
+  DUPLICATE
+  WITHDRAWN
+}
+
+/// What only the MD rules on. Slice 2 puts duplicate containers here; later slices add their own kinds.
+model MdQueueItem {
+  id           String      @id @default(uuid()) @db.Uuid
+  accountId    String      @db.Uuid
+  account      Account     @relation(fields: [accountId], references: [id])
+  companyId    String?     @db.Uuid
+  kind         String
+  entity       String
+  entityId     String      @db.Uuid
+  summary      Json
+  status       QueueStatus @default(OPEN)
+  resolution   String?
+  resolvedById String?     @db.Uuid
+  resolvedAt   DateTime?
+  createdById  String      @db.Uuid
+  createdAt    DateTime    @default(now())
+
+  @@index([accountId, status, createdAt])
+}
+
+enum QueueStatus {
+  OPEN
+  RESOLVED
 }
