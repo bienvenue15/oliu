@@ -1,6 +1,7 @@
 # Slice 1 — Accounts, companies, roles
 
-**Built:** 22 October 2026 · **Status:** code complete, 12 automated tests passing, waiting for your live test.
+**Built:** 22 October 2026 · **Status:** code complete, 14 automated tests passing. Your live test of 23 October
+was cut short by a fault in the local database (section 9, fixed the same evening); runs 5, 6 and 7 of the test road are still to finish.
 **Roadmap:** slice 1 of 12, the spine. Nothing else exists yet, on purpose.
 
 This note is written for you, not for a developer. It says what exists, how it works, how to try it,
@@ -122,9 +123,28 @@ Password for every demo person: `demo`. Codes land in http://localhost:3001/dev/
 Pass when all seven are ticked and nothing looked wrong, slow or confusing, wording included.
 Note: the login limit is 20 attempts per 15 minutes from one address; if you hit it, the API is restarted.
 
+### What your run of 23 October left in the audit trail
+
+You went down the road from 20:02 to 20:10. The trail (which nobody can edit) shows:
+
+| # | Seen in the trail | Still to do |
+|---|---|---|
+| 1 | Eraste signed in at 20:06 and 20:09 | tick it if the four screens looked right |
+| 2 | Samuel signed in at 20:02 | — |
+| 3 | Aline signed in at 20:03 | — |
+| 4 | Peace signed in at 20:04 | — |
+| 5 | Charles refused at 20:05, the refusal is in the trail | Charles was never reactivated; he is still suspended. Reactivate him, then sign in as him |
+| 6 | Eraste invited "Eric" (me.m@jivahlogistics.co.tz, Field Officer, OLIU) at 20:08, then suspended him 19 seconds later | The invitation link was never opened. Reactivate Eric (or invite someone else), open the link in the dev inbox, set a password, sign in |
+| 7 | nothing: no second account was created | create one from /setup |
+| extra | Jean Habimana (Transport Coordinator) and Claire Irakoze (Reporting Officer) also signed in | — |
+
+Two things to look at when you continue: Eric's e-mail is at the JIVAH domain but he was placed in OLIU, which is allowed but
+worth a glance; and if you saw "Something went wrong on our side" at any point before the end, that was the database fault
+of section 9, not something you did.
+
 ## 7. What was tested, and how
 
-Twelve automated tests run against a fresh database on every `npm test` (about 8 seconds):
+Fourteen automated tests run against a fresh database on every `npm test` (about 13 seconds):
 
 - Account set-up creates main, partner and branch companies and the owner as MD; refuses a group with
   no partner, two billers, or a branch without a parent.
@@ -137,6 +157,8 @@ Twelve automated tests run against a fresh database on every `npm test` (about 8
 - Suspension: the session dies, the next login is refused, the refusal is in the trail, the MD can reactivate.
 - The audit table refuses UPDATE and DELETE at database level.
 - A Field Officer cannot read the trail; a Reporting Officer can, with no write permissions.
+- The local database keeps serving after it has dropped more clients than it has connection slots, and after
+  a query has failed inside it (the two faults of section 9).
 
 Also done by hand through the running web app: the six logins above, the switcher guard, the people list,
 the audit trail, the dev inbox.
@@ -160,8 +182,15 @@ errors never leak internals · dependencies pinned.
   binaries.** Development therefore runs PGlite: real PostgreSQL compiled to WebAssembly, served on a port
   so Prisma talks to it normally. The server will use ordinary PostgreSQL from `docker-compose.yml`; nothing
   in the code knows the difference. Hosting in Kigali is unchanged.
-- A force-killed API can leave the local database holding a dead connection. The database script now keeps
-  running through that; if it ever looks stuck, stop it with Ctrl+C and run `npm run db:start` again.
+- **What stopped your test on 23 October.** The library that puts PGlite on a port (`pglite-socket` 0.2.14) has
+  two faults. Every client it drops, for being silent for 30 seconds or for vanishing, keeps its connection slot
+  for ever; with 8 slots, the eighth pause of your test used the last one, and from then on every request got
+  "Something went wrong on our side" while the pages themselves still opened. And a query that fails inside the
+  library freezes everything queued behind it. Both are now guarded in `api/scripts/local-postgres.ts` (no silent-client
+  timeout, 16 slots, dropped clients are forgotten, a failed query no longer freezes the queue), and a test proves each
+  guard. The server's real PostgreSQL has neither fault; this only ever concerned development on this machine.
+  The database now runs in its own PowerShell window titled "OLIU db:start"; if it ever looks stuck again, close that
+  window and run `npm run db:start`.
 
 ## 10. Questions for you
 
