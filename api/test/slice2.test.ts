@@ -335,7 +335,49 @@ describe('booking and container', () => {
       expect(actions).toContain(a);
   });
 
-  it('the other side finds a box by number, read-only, with its booking and client', async () => {
+  it("the partner company makes no bookings, lines or clients: that is the billing company's work", async () => {
+    const w = await world();
+    // Samuel (JIVAH, Operations Manager) has no booking screen and the API refuses him anyway.
+    const me = await request(app).get('/api/auth/me').set('Cookie', w.samuel);
+    expect(me.body.booksForClients).toBe(false);
+    expect(
+      me.body.menus.flatMap((m: { screens: { key: string }[] }) => m.screens.map((x) => x.key)),
+    ).not.toContain('book');
+    expect(
+      (await request(app).post('/api/shipping-lines').set('Cookie', w.samuel).send({ name: 'MSC' }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await request(app).post('/api/clients').set('Cookie', w.samuel).send({ name: 'Any' }))
+        .status,
+    ).toBe(403);
+    const b = await request(app).post('/api/bookings').set('Cookie', w.samuel).send({
+      shippingLineId: w.pil.id,
+      reference: 'DAR600233477',
+      clientId: w.spaceMining.id,
+      cargo: 'TIN',
+      expectedCount: 1,
+    });
+    expect(b.status).toBe(403);
+    // Divine (OLIU) keeps the screen; the MD too, but only for the billing company in the switcher.
+    expect(
+      (await request(app).get('/api/auth/me').set('Cookie', w.divine)).body.booksForClients,
+    ).toBe(true);
+    const jivah = await prisma.company.findFirstOrThrow({
+      where: { legalName: { startsWith: 'JIVAH' } },
+    });
+    expect(
+      (
+        await request(app)
+          .post('/api/clients')
+          .set('Cookie', w.md)
+          .set('X-Company', jivah.id)
+          .send({ name: 'Any' })
+      ).status,
+    ).toBe(403);
+  });
+
+  it('the other side sees nothing of a box until it crosses: not by number, not the booking', async () => {
     const w = await world();
     const sm = await request(app)
       .post('/api/bookings')
@@ -351,22 +393,13 @@ describe('booking and container', () => {
     // JIVAH's own list is empty — nothing has reached their side yet.
     expect((await request(app).get('/api/containers').set('Cookie', w.samuel)).body).toEqual([]);
     expect((await request(app).get('/api/bookings').set('Cookie', w.samuel)).body).toEqual([]);
-    // But a box is found by number, with everything needed to recognise it.
+    // One side, one company: not even by number, and the booking page is closed to them.
     const found = await request(app).get('/api/containers?q=pciu 932093').set('Cookie', w.samuel);
-    expect(found.body).toHaveLength(1);
-    expect(found.body[0].number).toBe('PCIU9320936');
-    expect(found.body[0].booking).toMatchObject({
-      reference: 'DAR600233400',
-      client: 'Space Mining',
-      vessel: 'KOTA SETIA',
-      companyName: 'OLIU LOGISTICS LTD',
-      line: 'PIL',
-    });
+    expect(found.body).toHaveLength(0);
     const detail = await request(app)
       .get(`/api/bookings/${sm.body.booking.id}`)
       .set('Cookie', w.samuel);
-    expect(detail.status).toBe(200);
-    expect(detail.body.mayEdit).toBe(false);
+    expect(detail.status).toBe(403);
     // Read-only means read-only.
     expect(
       (
@@ -413,7 +446,7 @@ describe('booking and container', () => {
           .send({ containers: boxes(SPACE_MINING.slice(2, 3)) })
       ).status,
     ).toBe(400); // already on it
-    // JIVAH makes its own booking on its own side.
+    // JIVAH makes no booking of its own: bookings are the billing company's (OLIU's) work.
     const theirs = await request(app)
       .post('/api/bookings')
       .set('Cookie', w.samuel)
@@ -424,8 +457,7 @@ describe('booking and container', () => {
         cargo: 'TANTALITE',
         containers: boxes(TRANSVERA.slice(0, 1)),
       });
-    expect(theirs.status).toBe(201);
-    expect(theirs.body.booking.companyId).toBe(w.jivah.id);
+    expect(theirs.status).toBe(403);
   });
 
   it("a line's booking-number shape is enforced; its usual owner codes only produce a note", async () => {
@@ -465,6 +497,21 @@ describe('booking and container', () => {
     expect(right.body.notes[0]).toMatch(
       /FFAU8028326: owner code FFAU is not one CMA CGM usually uses/,
     );
+    // A line with no known shape still refuses what no line ever issues: spaces, symbols, too short.
+    for (const reference of ['DAR 600233400', 'DAR-6002', 'AB12', 'A'.repeat(21)]) {
+      const r = await request(app)
+        .post('/api/bookings')
+        .set('Cookie', w.divine)
+        .send({ ...body, shippingLineId: w.pil.id, reference });
+      expect(r.status, reference).toBe(400);
+      expect(r.body.details[0].path).toBe('reference');
+    }
+    const plain = await request(app)
+      .post('/api/bookings')
+      .set('Cookie', w.divine)
+      .send({ ...body, shippingLineId: w.pil.id, reference: 'dar600233400' });
+    expect(plain.status).toBe(201);
+    expect(plain.body.booking.reference).toBe('DAR600233400');
     expect(
       (
         await request(app)
@@ -495,18 +542,28 @@ describe('booking and container', () => {
     expect((await request(app).post('/api/bookings').set('Cookie', w.md).send(body)).status).toBe(
       400,
     ); // no company chosen
-    const asJivah = await request(app)
+    // JIVAH does not bill the client, so even the MD cannot book for it; for OLIU the MD can.
+    expect(
+      (
+        await request(app)
+          .post('/api/bookings')
+          .set('Cookie', w.md)
+          .set('X-Company', w.jivah.id)
+          .send(body)
+      ).status,
+    ).toBe(403);
+    const asOliu = await request(app)
       .post('/api/bookings')
       .set('Cookie', w.md)
-      .set('X-Company', w.jivah.id)
+      .set('X-Company', w.oliu.id)
       .send(body);
-    expect(asJivah.status).toBe(201);
-    expect(asJivah.body.booking.companyId).toBe(w.jivah.id);
+    expect(asOliu.status).toBe(201);
+    expect(asOliu.body.booking.companyId).toBe(w.oliu.id);
     expect((await request(app).get('/api/bookings').set('Cookie', w.md)).body).toHaveLength(1); // the MD with no switcher: every company
     expect(
-      (await request(app).get('/api/bookings').set('Cookie', w.md).set('X-Company', w.oliu.id))
+      (await request(app).get('/api/bookings').set('Cookie', w.md).set('X-Company', w.jivah.id))
         .body,
-    ).toHaveLength(0);
+    ).toHaveLength(0); // nothing of it is on JIVAH's side yet
     expect(
       (await request(app).get('/api/bookings?month=2020-01').set('Cookie', w.md)).body,
     ).toHaveLength(0);
@@ -536,7 +593,7 @@ describe('booking and container', () => {
       [],
     );
     expect(
-      (await request(app).get(`/api/bookings/${asJivah.body.booking.id}`).set('Cookie', stranger))
+      (await request(app).get(`/api/bookings/${asOliu.body.booking.id}`).set('Cookie', stranger))
         .status,
     ).toBe(404);
     expect((await request(app).get('/api/shipping-lines').set('Cookie', stranger)).body).toEqual(

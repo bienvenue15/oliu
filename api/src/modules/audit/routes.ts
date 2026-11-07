@@ -24,12 +24,14 @@ const query = z.object({
 auditRouter.get('/', requireAuth, async (req, res, next) => {
   try {
     const s = scopeOf(req);
-    if (!canOpenScreen(s.role as Role, 'aud')) throw forbidden('The audit trail is not visible to your role');
+    if (!canOpenScreen(s.role as Role, 'aud'))
+      throw forbidden('The audit trail is not visible to your role');
     const q = parseBody(query, req.query);
     const rows = await prisma.auditEvent.findMany({
       where: {
         accountId: s.accountId,
-        ...(s.companyId ? { OR: [{ companyId: s.companyId }, { companyId: null }] } : {}),
+        // One side, one company: a company-bound person reads their company's rows; account-wide rows are the MD's.
+        ...(s.companyId ? { companyId: s.companyId } : {}),
         ...(q.module ? { module: q.module } : {}),
         ...(q.entity ? { entity: q.entity } : {}),
         ...(q.entityId ? { entityId: q.entityId } : {}),
@@ -39,9 +41,18 @@ auditRouter.get('/', requireAuth, async (req, res, next) => {
       take: q.limit,
     });
     const userIds = [...new Set(rows.map((r) => r.userId).filter((x): x is string => !!x))];
-    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true },
+    });
     const nameOf = new Map(users.map((u) => [u.id, u.name]));
-    res.json(rows.map((r) => ({ ...r, id: Number(r.id), userName: r.userId ? nameOf.get(r.userId) ?? '—' : 'system' })));
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        id: Number(r.id),
+        userName: r.userId ? (nameOf.get(r.userId) ?? '—') : 'system',
+      })),
+    );
   } catch (e) {
     next(e);
   }

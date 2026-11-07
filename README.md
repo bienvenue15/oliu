@@ -27,7 +27,7 @@ serves a local PostgreSQL (PGlite, real PostgreSQL compiled to WebAssembly) on p
 npm install
 npm run db:start      # local PostgreSQL on port 5433 (or: docker compose up db, port 5432)
 npm run db:migrate    # create the tables
-npm run db:seed       # OLIU · JIVAH demo account with twelve users
+npm run db:seed       # OLIU · JIVAH demo account, twelve users, the demo story (-- --fresh rebuilds it)
 npm run dev:api       # http://localhost:3001
 npm run dev:web       # http://localhost:3000
 ```

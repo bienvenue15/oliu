@@ -5,9 +5,11 @@ Express 5 + Prisma + PostgreSQL. Every business rule lives here; the web app onl
 ```
 npm run db:start         local PostgreSQL (PGlite) on 127.0.0.1:5433 — keep it running
 npm run db:migrate       apply migrations
-npm run db:seed          OLIU · JIVAH demo account, twelve people, password demo
+npm run db:seed          OLIU · JIVAH demo account, twelve people, password demo, and the demo story (played
+                         through the API when the account has no bookings yet); -- --fresh wipes and rebuilds it
+                         (prisma/seed.ts, prisma/demo-story.ts; the plan: docs/slices/00-demo-data.md)
 npm run dev              API on :3001 with reload; dev inbox at /dev/mail
-npm test                 22 tests on a fresh in-memory database (~15 s)
+npm test                 64 tests on a fresh in-memory database (~2 min; one of them builds the demo world)
 npm run lint · typecheck
 ```
 

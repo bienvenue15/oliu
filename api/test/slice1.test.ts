@@ -24,7 +24,10 @@ describe('account set-up', () => {
   it('creates a group with a main, a partner and a branch, and the owner as MD', async () => {
     const r = await request(app).post('/api/accounts').send(groupSetup());
     expect(r.status).toBe(201);
-    const companies = await prisma.company.findMany({ where: { accountId: r.body.accountId }, orderBy: { createdAt: 'asc' } });
+    const companies = await prisma.company.findMany({
+      where: { accountId: r.body.accountId },
+      orderBy: { createdAt: 'asc' },
+    });
     expect(companies.map((c) => c.kind)).toEqual(['MAIN', 'PARTNER', 'BRANCH']);
     expect(companies[2]!.parentId).toBe(companies[0]!.id);
     expect(companies.filter((c) => c.billsClient)).toHaveLength(1);
@@ -35,8 +38,16 @@ describe('account set-up', () => {
 
   it('refuses a group with no partner, two billers, or a branch without a parent', async () => {
     const bad1 = { ...groupSetup(), companies: [groupSetup().companies[0]] };
-    const bad2 = { ...groupSetup(), companies: groupSetup().companies.map((c) => ({ ...c, billsClient: true })) };
-    const bad3 = { ...groupSetup(), companies: groupSetup().companies.map((c) => (c.kind === 'BRANCH' ? { ...c, parentIndex: undefined } : c)) };
+    const bad2 = {
+      ...groupSetup(),
+      companies: groupSetup().companies.map((c) => ({ ...c, billsClient: true })),
+    };
+    const bad3 = {
+      ...groupSetup(),
+      companies: groupSetup().companies.map((c) =>
+        c.kind === 'BRANCH' ? { ...c, parentIndex: undefined } : c,
+      ),
+    };
     for (const body of [bad1, bad2, bad3]) {
       const r = await request(app).post('/api/accounts').send(body);
       expect(r.status).toBe(400);
@@ -48,13 +59,17 @@ describe('account set-up', () => {
 describe('login with one-time code', () => {
   it('mails a six-digit code to the department mailbox, then opens a session', async () => {
     await request(app).post('/api/accounts').send(groupSetup());
-    const r1 = await request(app).post('/api/auth/login').send({ email: 'md@oliu.test', password: PASSWORD });
+    const r1 = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'md@oliu.test', password: PASSWORD });
     expect(r1.status).toBe(200);
     expect(r1.body.challengeId).toBeDefined();
     const mail = devOutbox()[0]!;
     expect(mail.to).toBe('md@oliu.test');
     expect(mail.text).toMatch(/\d{6}/);
-    const wrong = await request(app).post('/api/auth/otp').send({ challengeId: r1.body.challengeId, code: '000000' });
+    const wrong = await request(app)
+      .post('/api/auth/otp')
+      .send({ challengeId: r1.body.challengeId, code: '000000' });
     expect(wrong.status).toBe(401);
     const cookie = await login(app, 'md@oliu.test');
     const me = await request(app).get('/api/auth/me').set('Cookie', cookie);
@@ -66,15 +81,21 @@ describe('login with one-time code', () => {
 
   it('gives the same answer for a wrong password and an unknown e-mail', async () => {
     await request(app).post('/api/accounts').send(groupSetup());
-    const a = await request(app).post('/api/auth/login').send({ email: 'md@oliu.test', password: 'wrong-password-1' });
-    const b = await request(app).post('/api/auth/login').send({ email: 'nobody@oliu.test', password: 'wrong-password-1' });
+    const a = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'md@oliu.test', password: 'wrong-password-1' });
+    const b = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'nobody@oliu.test', password: 'wrong-password-1' });
     expect(a.status).toBe(401);
     expect(b.status).toBe(401);
     expect(a.body.error).toBe(b.body.error);
   });
 
   it('rejects a forged session cookie', async () => {
-    const r = await request(app).get('/api/auth/me').set('Cookie', 'oliu_session=00000000-0000-0000-0000-000000000000.forged');
+    const r = await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', 'oliu_session=00000000-0000-0000-0000-000000000000.forged');
     expect(r.status).toBe(401);
   });
 });
@@ -83,9 +104,17 @@ describe('scoping — every person sees only their side', () => {
   it('a JIVAH Finance Officer never sees the OLIU company; the MD sees all', async () => {
     const r = await request(app).post('/api/accounts').send(groupSetup());
     const md = await login(app, 'md@oliu.test');
-    const companies = await prisma.company.findMany({ where: { accountId: r.body.accountId }, orderBy: { createdAt: 'asc' } });
+    const companies = await prisma.company.findMany({
+      where: { accountId: r.body.accountId },
+      orderBy: { createdAt: 'asc' },
+    });
     const [oliu, jivah] = companies;
-    await inviteAndActivate(app, md, { name: 'Charles M.', email: 'charles@jivah.test', role: 'FINANCE_OFFICER', companyId: jivah!.id });
+    await inviteAndActivate(app, md, {
+      name: 'Charles M.',
+      email: 'charles@jivah.test',
+      role: 'FINANCE_OFFICER',
+      companyId: jivah!.id,
+    });
     const charles = await login(app, 'charles@jivah.test');
 
     const me = await request(app).get('/api/auth/me').set('Cookie', charles);
@@ -93,14 +122,16 @@ describe('scoping — every person sees only their side', () => {
     expect(me.body.menus.map((m: { key: string }) => m.key)).not.toContain('ship'); // Finance Officer: no Shipments menu
     expect(me.body.menus.map((m: { key: string }) => m.key)).toContain('pay');
 
-    const acct = await request(app).get('/api/account').set('Cookie', charles);
-    const ids = acct.body.companies.map((c: { id: string }) => c.id);
-    expect(ids).not.toContain(oliu!.id);
-    expect(ids).toContain(jivah!.id);
+    // The account page (companies, bank accounts) and the people list are the MD's screens: refused to Charles.
+    expect((await request(app).get('/api/account').set('Cookie', charles)).status).toBe(403);
+    expect((await request(app).get('/api/users').set('Cookie', charles)).status).toBe(403);
 
-    // Asking for the other company through the switcher header is refused.
-    const sneaky = await request(app).get('/api/account').set('Cookie', charles).set('X-Company', oliu!.id);
-    expect(sneaky.status).toBe(200); // header ignored for a one-company user
+    // Asking for the other company through the switcher header changes nothing for a one-company user.
+    const sneaky = await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', charles)
+      .set('X-Company', oliu!.id);
+    expect(sneaky.status).toBe(200);
     expect(sneaky.body.companies.map((c: { id: string }) => c.id)).not.toContain(oliu!.id);
 
     const mdAcct = await request(app).get('/api/account').set('Cookie', md);
@@ -111,7 +142,9 @@ describe('scoping — every person sees only their side', () => {
     await request(app).post('/api/accounts').send(groupSetup());
     const other = await request(app).post('/api/accounts').send(singleSetup());
     const md = await login(app, 'md@oliu.test');
-    const foreign = await prisma.company.findFirstOrThrow({ where: { accountId: other.body.accountId } });
+    const foreign = await prisma.company.findFirstOrThrow({
+      where: { accountId: other.body.accountId },
+    });
     const r = await request(app).get('/api/account').set('Cookie', md).set('X-Company', foreign.id);
     expect(r.status).toBe(403);
   });
@@ -119,12 +152,25 @@ describe('scoping — every person sees only their side', () => {
   it('a Finance Officer cannot invite people; the MD can, and a company-bound role needs a company', async () => {
     const r = await request(app).post('/api/accounts').send(groupSetup());
     const md = await login(app, 'md@oliu.test');
-    const oliu = await prisma.company.findFirstOrThrow({ where: { accountId: r.body.accountId, kind: 'MAIN' } });
-    await inviteAndActivate(app, md, { name: 'Aline U.', email: 'aline@oliu.test', role: 'FINANCE_OFFICER', companyId: oliu.id });
+    const oliu = await prisma.company.findFirstOrThrow({
+      where: { accountId: r.body.accountId, kind: 'MAIN' },
+    });
+    await inviteAndActivate(app, md, {
+      name: 'Aline U.',
+      email: 'aline@oliu.test',
+      role: 'FINANCE_OFFICER',
+      companyId: oliu.id,
+    });
     const aline = await login(app, 'aline@oliu.test');
-    const denied = await request(app).post('/api/users').set('Cookie', aline).send({ name: 'X', email: 'x@oliu.test', role: 'FIELD_OFFICER', companyId: oliu.id });
+    const denied = await request(app)
+      .post('/api/users')
+      .set('Cookie', aline)
+      .send({ name: 'X', email: 'x@oliu.test', role: 'FIELD_OFFICER', companyId: oliu.id });
     expect(denied.status).toBe(403);
-    const noCompany = await request(app).post('/api/users').set('Cookie', md).send({ name: 'X', email: 'x@oliu.test', role: 'FIELD_OFFICER', companyId: null });
+    const noCompany = await request(app)
+      .post('/api/users')
+      .set('Cookie', md)
+      .send({ name: 'X', email: 'x@oliu.test', role: 'FIELD_OFFICER', companyId: null });
     expect(noCompany.status).toBe(400);
   });
 
@@ -141,15 +187,24 @@ describe('suspension and the audit trail', () => {
   it('a suspended user is refused, the attempt is recorded, and the MD can reactivate', async () => {
     const r = await request(app).post('/api/accounts').send(groupSetup());
     const md = await login(app, 'md@oliu.test');
-    const oliu = await prisma.company.findFirstOrThrow({ where: { accountId: r.body.accountId, kind: 'MAIN' } });
-    const u = await inviteAndActivate(app, md, { name: 'Peace K.', email: 'peace@oliu.test', role: 'FIELD_OFFICER', companyId: oliu.id });
+    const oliu = await prisma.company.findFirstOrThrow({
+      where: { accountId: r.body.accountId, kind: 'MAIN' },
+    });
+    const u = await inviteAndActivate(app, md, {
+      name: 'Peace K.',
+      email: 'peace@oliu.test',
+      role: 'FIELD_OFFICER',
+      companyId: oliu.id,
+    });
     const peace = await login(app, 'peace@oliu.test');
 
     const s = await request(app).post(`/api/users/${u.id}/suspend`).set('Cookie', md);
     expect(s.status).toBe(200);
     // Existing session is dead, and a new login is refused with a recorded attempt.
     expect((await request(app).get('/api/auth/me').set('Cookie', peace)).status).toBe(401);
-    const refused = await request(app).post('/api/auth/login').send({ email: 'peace@oliu.test', password: PASSWORD });
+    const refused = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'peace@oliu.test', password: PASSWORD });
     expect(refused.status).toBe(401);
     expect(refused.body.error).toMatch(/suspended/);
 
@@ -164,16 +219,32 @@ describe('suspension and the audit trail', () => {
 
   it('the audit table refuses UPDATE and DELETE', async () => {
     await request(app).post('/api/accounts').send(groupSetup());
-    await expect(prisma.$executeRawUnsafe('UPDATE "AuditEvent" SET action = \'x\'')).rejects.toThrow(/append-only/);
-    await expect(prisma.$executeRawUnsafe('DELETE FROM "AuditEvent"')).rejects.toThrow(/append-only/);
+    await expect(
+      prisma.$executeRawUnsafe('UPDATE "AuditEvent" SET action = \'x\''),
+    ).rejects.toThrow(/append-only/);
+    await expect(prisma.$executeRawUnsafe('DELETE FROM "AuditEvent"')).rejects.toThrow(
+      /append-only/,
+    );
   });
 
   it('a Field Officer cannot read the audit trail; a Reporting Officer can, read-only', async () => {
     const r = await request(app).post('/api/accounts').send(groupSetup());
     const md = await login(app, 'md@oliu.test');
-    const oliu = await prisma.company.findFirstOrThrow({ where: { accountId: r.body.accountId, kind: 'MAIN' } });
-    await inviteAndActivate(app, md, { name: 'Peace K.', email: 'peace@oliu.test', role: 'FIELD_OFFICER', companyId: oliu.id });
-    await inviteAndActivate(app, md, { name: 'Claire I.', email: 'claire@oliu.test', role: 'REPORTING_OFFICER', companyId: null });
+    const oliu = await prisma.company.findFirstOrThrow({
+      where: { accountId: r.body.accountId, kind: 'MAIN' },
+    });
+    await inviteAndActivate(app, md, {
+      name: 'Peace K.',
+      email: 'peace@oliu.test',
+      role: 'FIELD_OFFICER',
+      companyId: oliu.id,
+    });
+    await inviteAndActivate(app, md, {
+      name: 'Claire I.',
+      email: 'claire@oliu.test',
+      role: 'REPORTING_OFFICER',
+      companyId: null,
+    });
     const peace = await login(app, 'peace@oliu.test');
     const claire = await login(app, 'claire@oliu.test');
     expect((await request(app).get('/api/audit').set('Cookie', peace)).status).toBe(403);

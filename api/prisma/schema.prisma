@@ -15,23 +15,157 @@ datasource db {
 
 /// One paying tenant: a single company (with branches) or a group of partner companies working as one.
 model Account {
-  id            String   @id @default(uuid()) @db.Uuid
+  id            String        @id @default(uuid()) @db.Uuid
   name          String
   package       Package
   /// Stage at which the responsible company flips (groups only).
   handoverStage Stage?
   status        AccountStatus @default(ACTIVE)
-  createdAt     DateTime @default(now())
+  createdAt     DateTime      @default(now())
 
-  companies     Company[]
-  users         User[]
+  companies       Company[]
+  users           User[]
   featureSwitches FeatureSwitch[]
-  auditEvents   AuditEvent[]
-  shippingLines ShippingLine[]
-  clients       Client[]
-  bookings      Booking[]
-  containers    Container[]
-  mdQueueItems  MdQueueItem[]
+  auditEvents     AuditEvent[]
+  shippingLines   ShippingLine[]
+  clients         Client[]
+  bookings        Booking[]
+  containers      Container[]
+  mdQueueItems    MdQueueItem[]
+  costCategories  CostCategory[]
+  exchangeRates   ExchangeRate[]
+  costLines       CostLine[]
+  costSplits      CostSplit[]
+  settings        AccountSettings?
+  journeyEvents   JourneyEvent[]
+  riskPeriods     RiskPeriod[]
+  tipReasons      TipReason[]
+  tips            Tip[]
+  beneficiaries   Beneficiary[]
+  payments        PaymentRequest[]
+}
+
+/// One row per account: figures the MD sets once. Grows with later slices (caps, thresholds, prefixes).
+model AccountSettings {
+  accountId                 String   @id @db.Uuid
+  account                   Account  @relation(fields: [accountId], references: [id])
+  /// The company's margin on the automatic invoice (slice 8): PERCENT of cost, or FIXED_USD per box.
+  marginType                String   @default("PERCENT") @db.VarChar(10)
+  /// Basis points for PERCENT (1250 = 12.5 %), cents for FIXED_USD.
+  marginValue               Int      @default(0)
+  /// Slice 4: days a box may sit at the ICD before it is at risk, and hours between position updates on the road.
+  icdFreeDays               Int      @default(4)
+  trackingHours             Int      @default(12)
+  /// Slice 5: the most one tip may be, and the most a company may tip in a month, both in US cents.
+  tipCeilingUsdCents        Int      @default(5000)
+  tipCapUsdCents            Int      @default(100000)
+  /// Slice 6: above this, in US cents, an approval needs the approver's one-time code.
+  approvalThresholdUsdCents Int      @default(50000)
+  updatedAt                 DateTime @updatedAt
+}
+
+/// What money is spent on: clearance, transport, port charges … Per account; the MD keeps the list.
+model CostCategory {
+  /// The one category tips land in (slice 5); exactly one per account is expected.
+  isTip     Boolean    @default(false)
+  id        String     @id @default(uuid()) @db.Uuid
+  accountId String     @db.Uuid
+  account   Account    @relation(fields: [accountId], references: [id])
+  name      String
+  sortOrder Int        @default(0)
+  active    Boolean    @default(true)
+  costLines CostLine[]
+
+  @@unique([accountId, name])
+}
+
+/// Local units per one US dollar on a day: RWF 1452, TZS 2608. Typed by Finance or the MD; kept forever.
+model ExchangeRate {
+  id          String   @id @default(uuid()) @db.Uuid
+  accountId   String   @db.Uuid
+  account     Account  @relation(fields: [accountId], references: [id])
+  currency    String   @db.VarChar(3)
+  date        DateTime @db.Date
+  /// Units of the currency per 1 USD, three decimals.
+  perUsd      Decimal  @db.Decimal(14, 3)
+  enteredById String   @db.Uuid
+  createdAt   DateTime @default(now())
+
+  @@unique([accountId, currency, date])
+}
+
+/// One shared bill divided across several boxes: the truck invoice, the clearing bill for a lot.
+model CostSplit {
+  id          String      @id @default(uuid()) @db.Uuid
+  accountId   String      @db.Uuid
+  account     Account     @relation(fields: [accountId], references: [id])
+  companyId   String      @db.Uuid
+  method      SplitMethod
+  /// The bill's total, in minor units of its currency.
+  totalMinor  BigInt
+  currency    String      @db.VarChar(3)
+  createdById String      @db.Uuid
+  createdAt   DateTime    @default(now())
+  lines       CostLine[]
+
+  @@index([accountId, companyId])
+}
+
+enum SplitMethod {
+  EQUAL
+  WEIGHT
+  MANUAL
+}
+
+/// PENDING_MD: typed by a company on a box that is on the other company's side; counts nowhere until the MD approves.
+enum CostLineStatus {
+  ACTIVE
+  VOID
+  PENDING_MD
+}
+
+/// Money spent on one box. Never a bare number: it has a container, a category, a date and a rate.
+model CostLine {
+  id           String          @id @default(uuid()) @db.Uuid
+  accountId    String          @db.Uuid
+  account      Account         @relation(fields: [accountId], references: [id])
+  /// The book it sits in: the company that spent the money.
+  companyId    String          @db.Uuid
+  containerId  String          @db.Uuid
+  container    Container       @relation(fields: [containerId], references: [id])
+  bookingId    String          @db.Uuid
+  categoryId   String          @db.Uuid
+  category     CostCategory    @relation(fields: [categoryId], references: [id])
+  splitId      String?         @db.Uuid
+  split        CostSplit?      @relation(fields: [splitId], references: [id])
+  date         DateTime        @db.Date
+  currency     String          @db.VarChar(3)
+  /// Minor units: cents for USD, whole francs for RWF.
+  amountMinor  BigInt
+  /// The rate of the cost's own date, copied here so the USD figure can always be rebuilt.
+  perUsd       Decimal         @db.Decimal(14, 3)
+  usdCents     BigInt
+  paidTo       String          @default("")
+  reference    String          @default("")
+  note         String          @default("")
+  status       CostLineStatus  @default(ACTIVE)
+  voidReason   String          @default("")
+  /// True when the cost's date falls inside an at-risk period of the box (slice 4): the cost of the delay.
+  delayRelated Boolean         @default(false)
+  /// The tip this line came from, when it is a tip (slice 5).
+  tipId        String?         @db.Uuid
+  tip          Tip?            @relation(fields: [tipId], references: [id])
+  /// The payment order this line is on, once requested (slice 6); freed again if the order is rejected.
+  paymentId    String?         @db.Uuid
+  payment      PaymentRequest? @relation(fields: [paymentId], references: [id])
+  enteredById  String          @db.Uuid
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([accountId, companyId, date])
+  @@index([containerId, status])
+  @@index([bookingId])
+  @@index([paymentId])
 }
 
 enum Package {
@@ -78,30 +212,30 @@ enum CompanyKind {
 
 /// Prints on invoices. Changing one needs a second approval (four-eyes) — the pending fields hold the proposal.
 model BankAccount {
-  id          String   @id @default(uuid()) @db.Uuid
-  accountId   String   @db.Uuid
-  companyId   String   @db.Uuid
-  company     Company  @relation(fields: [companyId], references: [id])
-  bank        String
-  number      String
-  currency    String   @db.VarChar(3)
-  swift       String   @default("")
-  active      Boolean  @default(true)
+  id            String   @id @default(uuid()) @db.Uuid
+  accountId     String   @db.Uuid
+  companyId     String   @db.Uuid
+  company       Company  @relation(fields: [companyId], references: [id])
+  bank          String
+  number        String
+  currency      String   @db.VarChar(3)
+  swift         String   @default("")
+  active        Boolean  @default(true)
   pendingChange Json?
-  pendingBy   String?  @db.Uuid
-  createdAt   DateTime @default(now())
+  pendingBy     String?  @db.Uuid
+  createdAt     DateTime @default(now())
 
   @@index([accountId, companyId])
 }
 
 /// Which modules are on for an account (and optionally one company). Off hides screens; rows are never deleted.
 model FeatureSwitch {
-  id        String   @id @default(uuid()) @db.Uuid
-  accountId String   @db.Uuid
-  account   Account  @relation(fields: [accountId], references: [id])
-  companyId String?  @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
+  accountId String  @db.Uuid
+  account   Account @relation(fields: [accountId], references: [id])
+  companyId String? @db.Uuid
   feature   String
-  enabled   Boolean  @default(true)
+  enabled   Boolean @default(true)
 
   @@unique([accountId, companyId, feature])
 }
@@ -124,9 +258,9 @@ model User {
   status       UserStatus @default(INVITED)
   createdAt    DateTime   @default(now())
 
-  sessions     Session[]
+  sessions      Session[]
   otpChallenges OtpChallenge[]
-  tokens       ActionToken[]
+  tokens        ActionToken[]
 
   @@unique([accountId, email])
   @@index([accountId, companyId])
@@ -163,26 +297,28 @@ model Session {
 
 /// Password accepted, waiting for the six-digit code sent to the department mailbox.
 model OtpChallenge {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  user      User     @relation(fields: [userId], references: [id])
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id])
   codeHash  String
-  attempts  Int      @default(0)
+  attempts  Int       @default(0)
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  /// LOGIN: the second step of signing in · TIP_OVERRIDE: the MD's code that lets a tip past the cap (slice 5).
+  purpose   String    @default("LOGIN") @db.VarChar(20)
+  createdAt DateTime  @default(now())
 }
 
 /// One-use links: set a password after an invitation, reset a forgotten one.
 model ActionToken {
-  id        String      @id @default(uuid()) @db.Uuid
-  userId    String      @db.Uuid
-  user      User        @relation(fields: [userId], references: [id])
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
+  user      User         @relation(fields: [userId], references: [id])
   purpose   TokenPurpose
-  tokenHash String      @unique
+  tokenHash String       @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime    @default(now())
+  createdAt DateTime     @default(now())
 }
 
 enum TokenPurpose {
@@ -272,24 +408,69 @@ model Booking {
   shippingLine   ShippingLine  @relation(fields: [shippingLineId], references: [id])
   clientId       String        @db.Uuid
   client         Client        @relation(fields: [clientId], references: [id])
+  /// The company's own file number, assigned by the system and never changed: OLIU-2026-0042.
+  fileNumber     String
   /// The shipping line's booking number.
   reference      String
   cargo          String
   destination    String        @default("")
   vessel         String        @default("")
   voyage         String        @default("")
-  status         BookingStatus @default(BOOKED)
+  /// Port of loading and port of discharge, as the line names them.
+  pol            String        @default("")
+  pod            String        @default("")
+  etd            DateTime?     @db.Date
+  eta            DateTime?     @db.Date
+  blNumber       String        @default("")
+  /// Boxes agreed with the line before their numbers are known.
+  expectedCount  Int           @default(0)
+  expectedSize   String        @default("40FT") @db.VarChar(5)
+  status         BookingStatus @default(CONFIRMED)
+  confirmedAt    DateTime?     @db.Date
+  cancelledAt    DateTime?
+  cancelReason   String        @default("")
+  /// For a sister booking: the booking the waiting boxes came from.
+  parentId       String?       @db.Uuid
+  parent         Booking?      @relation("SisterBookings", fields: [parentId], references: [id])
+  sisters        Booking[]     @relation("SisterBookings")
   createdById    String        @db.Uuid
   createdAt      DateTime      @default(now())
 
   containers Container[]
+  comments   BookingComment[]
 
   @@unique([accountId, reference])
+  @@unique([accountId, fileNumber])
   @@index([accountId, companyId, createdAt])
 }
 
+/// A note on a booking: who, when, what. Append-only by trigger, like the audit trail.
+model BookingComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @db.Uuid
+  bookingId String   @db.Uuid
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  userId    String   @db.Uuid
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([bookingId, createdAt])
+}
+
+/// The next file number per company and year; bumped atomically when a booking is created.
+model FileSequence {
+  companyId String @db.Uuid
+  year      Int
+  next      Int    @default(1)
+
+  @@id([companyId, year])
+}
+
+/// PENDING: asked of the line, not yet confirmed · CONFIRMED: the line agreed · CANCELLED: withdrawn with a reason, boxes freed.
 enum BookingStatus {
-  BOOKED
+  PENDING
+  CONFIRMED
+  CANCELLED
 }
 
 /// One box. An account holds one ACTIVE record per number (partial unique index, see the migration);
@@ -303,6 +484,8 @@ model Container {
   number        String          @db.VarChar(11)
   size          String          @db.VarChar(5)
   lot           String          @default("")
+  /// Cargo weight in kilograms, when known; needed only to split a shared cost by weight.
+  weightKg      Int?
   stage         Stage           @default(BOOKED)
   status        ContainerStatus @default(ACTIVE)
   /// For a DUPLICATE: the ACTIVE record it collided with.
@@ -310,8 +493,102 @@ model Container {
   createdById   String          @db.Uuid
   createdAt     DateTime        @default(now())
 
+  // ---- the journey (slice 4)
+  /// The company whose working list the box is on. Starts as the booking's company; flips at the hand-over stage.
+  responsibleCompanyId String    @db.Uuid
+  /// When the current stage was reached.
+  stageAt              DateTime?
+  /// The last position typed, and when; a box on the road is expected to be updated every trackingHours.
+  lastPlace            String    @default("")
+  lastSeenAt           DateTime?
+  /// Non-empty while the box is held where it is.
+  holdReason           String    @default("")
+  /// When the box arrived at the ICD; the free days count from here.
+  icdSince             DateTime?
+  /// A box whose journey ends at the warehouse (Magerwa, Dubai): never crosses, never on the partner's list.
+  localOnly            Boolean   @default(false)
+  releasedAt           DateTime?
+  releasedById         String?   @db.Uuid
+  departedOn           DateTime? @db.Date
+  arrivedOn            DateTime? @db.Date
+  emptyReturnedOn      DateTime? @db.Date
+  /// Closed to Finance: Operations is done with the box; it counts in plMonth's P&L.
+  closedAt             DateTime?
+  closedOn             DateTime? @db.Date
+  closedById           String?   @db.Uuid
+  plMonth              String    @default("") @db.VarChar(7)
+  readyToInvoice       Boolean   @default(false)
+
+  costLines     CostLine[]
+  journeyEvents JourneyEvent[]
+  riskPeriods   RiskPeriod[]
+
   @@index([accountId, number])
   @@index([bookingId])
+  @@index([accountId, responsibleCompanyId, status, stage])
+}
+
+/// One entry on a box's timeline: a stage reached, a position update, a hold, a release, a flag, a closing.
+model JourneyEvent {
+  id                String      @id @default(uuid()) @db.Uuid
+  accountId         String      @db.Uuid
+  account           Account     @relation(fields: [accountId], references: [id])
+  containerId       String      @db.Uuid
+  container         Container   @relation(fields: [containerId], references: [id])
+  /// The company of the person who typed it.
+  companyId         String?     @db.Uuid
+  kind              JourneyKind
+  stage             Stage?
+  place             String      @default("")
+  note              String      @default("")
+  /// When it happened, as typed; createdAt is when it was typed.
+  happenedAt        DateTime
+  /// For the hand-over: the company the box went to.
+  handedToCompanyId String?     @db.Uuid
+  byId              String      @db.Uuid
+  createdAt         DateTime    @default(now())
+
+  @@index([containerId, happenedAt])
+  @@index([accountId, createdAt])
+}
+
+enum JourneyKind {
+  REACHED
+  UPDATE
+  HELD
+  HOLD_LIFTED
+  RETURNED
+  CORRECTED
+  RELEASED
+  FLAGGED
+  CLEARED
+  CLOSED
+  REOPENED
+}
+
+/// A spell during which a box was at risk. A cost dated inside one is delay-related.
+model RiskPeriod {
+  id          String     @id @default(uuid()) @db.Uuid
+  accountId   String     @db.Uuid
+  account     Account    @relation(fields: [accountId], references: [id])
+  containerId String     @db.Uuid
+  container   Container  @relation(fields: [containerId], references: [id])
+  source      RiskSource
+  reason      String     @default("")
+  from        DateTime   @db.Date
+  /// Null while the spell is open.
+  to          DateTime?  @db.Date
+  openedById  String?    @db.Uuid
+  closedById  String?    @db.Uuid
+  createdAt   DateTime   @default(now())
+
+  @@index([containerId, to])
+}
+
+/// ICD: opened by the system when the free days run out · MANUAL: flagged by a person (a breakdown, a hold).
+enum RiskSource {
+  ICD
+  MANUAL
 }
 
 enum ContainerStatus {
@@ -343,4 +620,180 @@ model MdQueueItem {
 enum QueueStatus {
   OPEN
   RESOLVED
+}
+
+// ---------------------------------------------------------------- tips (slice 5)
+
+/// Why a tip was paid: a short list of buttons the MD keeps (checkpoint passage, weighing, expediting, goodwill, other).
+model TipReason {
+  id        String  @id @default(uuid()) @db.Uuid
+  accountId String  @db.Uuid
+  account   Account @relation(fields: [accountId], references: [id])
+  label     String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  tips Tip[]
+
+  @@unique([accountId, label])
+}
+
+enum TipPayeeType {
+  OFFICIAL
+  AGENT
+  DRIVER
+  OTHER
+}
+
+/// A facilitation payment, typed in three taps. Its money is cost lines (one per box) in the tip category.
+model Tip {
+  id          String        @id @default(uuid()) @db.Uuid
+  accountId   String        @db.Uuid
+  account     Account       @relation(fields: [accountId], references: [id])
+  /// The book it sits in: the company of the person who paid.
+  companyId   String        @db.Uuid
+  /// Made by the phone before saving, so a tip sent twice from the outbox is saved once.
+  clientId    String        @db.Uuid
+  reasonId    String        @db.Uuid
+  reason      TipReason     @relation(fields: [reasonId], references: [id])
+  bookingId   String        @db.Uuid
+  splitId     String?       @db.Uuid
+  date        DateTime      @db.Date
+  currency    String        @db.VarChar(3)
+  amountMinor BigInt
+  usdCents    BigInt
+  payeeType   TipPayeeType?
+  /// MoMo or M-Pesa number, or a name.
+  payeeId     String        @default("")
+  /// The stop it happened at, if any (optional, as the analysis says).
+  checkpoint  String        @default("")
+  /// The box's stage at the moment of paying.
+  stage       Stage?
+  note        String        @default("")
+  /// The receipt photo, stored outside the web root; empty until attached.
+  receiptPath String        @default("")
+  receiptType String        @default("")
+  /// True when the MD's code let it past the ceiling or the cap.
+  mdOverride  Boolean       @default(false)
+  paidById    String        @db.Uuid
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  lines CostLine[]
+
+  @@unique([accountId, clientId])
+  @@index([accountId, companyId, date])
+  @@index([paidById, createdAt])
+}
+
+// ---------------------------------------------------------------- payments (slice 6)
+
+enum BeneficiaryStatus {
+  PENDING
+  VERIFIED
+  SUSPENDED
+}
+
+/// Who gets paid, on a protected account: a change of account waits for a second person (four-eyes).
+model Beneficiary {
+  id            String            @id @default(uuid()) @db.Uuid
+  accountId     String            @db.Uuid
+  account       Account           @relation(fields: [accountId], references: [id])
+  name          String
+  type          String            @db.VarChar(20)
+  /// For STAFF: the person who holds the cash float this beneficiary stands for.
+  userId        String?           @db.Uuid
+  accountKind   String            @db.VarChar(10)
+  /// The bank, or the mobile-money network.
+  bank          String            @default("")
+  number        String            @default("")
+  currency      String            @db.VarChar(3)
+  status        BeneficiaryStatus @default(PENDING)
+  note          String            @default("")
+  /// A proposed account change: { accountKind, bank, number, currency, reason }, until confirmed or dropped.
+  pendingChange Json?
+  pendingById   String?           @db.Uuid
+  pendingAt     DateTime?
+  verifiedById  String?           @db.Uuid
+  verifiedAt    DateTime?
+  suspendReason String            @default("")
+  createdById   String            @db.Uuid
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  payments PaymentRequest[]
+
+  @@unique([accountId, name])
+  @@index([accountId, status])
+}
+
+enum PaymentKind {
+  COST
+  EXPENSE
+  FLOAT_ADVANCE
+  SETTLEMENT
+}
+
+enum PaymentStatus {
+  REQUESTED
+  BLOCKED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+/// One payment order: requested, approved (or rejected), paid and locked. Nothing on a paid order ever changes.
+model PaymentRequest {
+  id               String        @id @default(uuid()) @db.Uuid
+  accountId        String        @db.Uuid
+  account          Account       @relation(fields: [accountId], references: [id])
+  /// The book paying: the company of the requester (the switcher's for the MD).
+  companyId        String        @db.Uuid
+  number           String
+  kind             PaymentKind
+  purpose          String        @default("")
+  beneficiaryId    String        @db.Uuid
+  beneficiary      Beneficiary   @relation(fields: [beneficiaryId], references: [id])
+  /// For an office expense: the category it lands in (there is no cost line).
+  categoryId       String?       @db.Uuid
+  date             DateTime      @db.Date
+  currency         String        @db.VarChar(3)
+  amountMinor      BigInt
+  perUsd           Decimal       @db.Decimal(14, 3)
+  usdCents         BigInt
+  status           PaymentStatus @default(REQUESTED)
+  note             String        @default("")
+  requestedById    String        @db.Uuid
+  requestedAt      DateTime      @default(now())
+  approvedById     String?       @db.Uuid
+  approvedAt       DateTime?
+  /// True when the approval was confirmed with the approver's one-time code (above the threshold).
+  approvedWithCode Boolean       @default(false)
+  rejectedById     String?       @db.Uuid
+  rejectedAt       DateTime?
+  rejectReason     String        @default("")
+  paidById         String?       @db.Uuid
+  paidAt           DateTime?
+  /// The bank or MoMo reference; "FLOAT" for a settlement, which moves no money.
+  paidRef          String        @default("")
+  paidFromBankId   String?       @db.Uuid
+  /// Set when paid; from then on nothing on the order changes, by anyone.
+  lockedAt         DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  lines CostLine[]
+
+  @@unique([companyId, number])
+  @@index([accountId, companyId, status])
+  @@index([beneficiaryId, status])
+}
+
+/// The PR number counter, one per company and year.
+model PaymentSequence {
+  companyId String @db.Uuid
+  year      Int
+  next      Int    @default(1)
+
+  @@id([companyId, year])
 }

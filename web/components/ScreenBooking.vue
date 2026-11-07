@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
  * Shipments → New booking. The person who makes the booking types the shipping line's number and the boxes.
+ * Four fields are required: line, booking №, client, cargo. The boxes may follow later ("6 x 40FT expected");
+ * everything the line tells you afterwards (vessel, ETD, BL …) is a fill-later field.
  * The check digit is verified as you type; a number the account already holds is saved beside its twin and
  * goes to the MD — never silently accepted, never refused.
  */
@@ -26,23 +28,36 @@ interface Row {
   existing: string | null;
 }
 interface Saved {
+  fileNumber: string;
   reference: string;
   count: number;
+  expected: number;
   duplicates: { number: string; existingBooking: string }[];
   notes: string[];
 }
 
 const lines = ref<Line[]>([]);
 const clients = ref<Client[]>([]);
-const form = reactive({
+const blankForm = () => ({
   shippingLineId: '',
   reference: '',
   clientId: '',
   cargo: '',
+  status: 'CONFIRMED' as 'CONFIRMED' | 'PENDING',
+  confirmedOn: new Date().toISOString().slice(0, 10),
+  expectedCount: 0,
+  expectedSize: '40FT',
   destination: '',
   vessel: '',
   voyage: '',
+  pol: '',
+  pod: '',
+  etd: '',
+  eta: '',
+  blNumber: '',
 });
+const form = reactive(blankForm());
+const later = ref(false);
 const blank = (): Row => ({ number: '', size: '40FT', lot: '', existing: null });
 const rows = ref<Row[]>([blank()]);
 const error = ref('');
@@ -52,7 +67,10 @@ const busy = ref(false);
 const line = computed(() => lines.value.find((l) => l.id === form.shippingLineId));
 const check = (r: Row) => (r.number.trim() ? checkContainerNumber(r.number) : null);
 const filled = computed(() => rows.value.filter((r) => r.number.trim()));
-const allValid = computed(() => filled.value.length > 0 && filled.value.every((r) => check(r)?.ok));
+const numbersValid = computed(() => filled.value.every((r) => check(r)?.ok));
+const allValid = computed(
+  () => numbersValid.value && (filled.value.length > 0 || Number(form.expectedCount) > 0),
+);
 const prefixNote = (r: Row) => {
   const c = check(r);
   if (!c?.ok || !line.value?.usualPrefixes.length) return '';
@@ -74,6 +92,7 @@ async function load() {
   if (!form.shippingLineId && lines.value[0]) form.shippingLineId = lines.value[0].id;
 }
 await load();
+useLive().onChange(['shipments'], load);
 
 /** Asks the API whether the account already holds this number, so the person knows before saving. */
 async function lookUp(r: Row) {
@@ -121,7 +140,7 @@ async function save(another: boolean) {
   busy.value = true;
   try {
     const res = await api<{
-      booking: { reference: string };
+      booking: { fileNumber: string; reference: string; expectedCount: number };
       containers: unknown[];
       duplicates: Saved['duplicates'];
       notes: string[];
@@ -129,18 +148,23 @@ async function save(another: boolean) {
       method: 'POST',
       body: {
         ...form,
+        expectedCount: Number(form.expectedCount) || 0,
+        confirmedOn: form.status === 'CONFIRMED' ? form.confirmedOn : '',
         containers: filled.value.map((r) => ({ number: r.number, size: r.size, lot: r.lot })),
       },
     });
     saved.value = {
+      fileNumber: res.booking.fileNumber,
       reference: res.booking.reference,
       count: res.containers.length,
+      expected: res.booking.expectedCount,
       duplicates: res.duplicates,
       notes: res.notes,
     };
     rows.value = [blank()];
-    form.reference = '';
-    if (!another) Object.assign(form, { cargo: '', destination: '', vessel: '', voyage: '' });
+    const keep = another ? { shippingLineId: form.shippingLineId, clientId: form.clientId } : {};
+    Object.assign(form, blankForm(), keep);
+    if (!form.shippingLineId && lines.value[0]) form.shippingLineId = lines.value[0].id;
   } catch (e) {
     error.value = errorText(e);
   } finally {
@@ -211,8 +235,11 @@ async function addClient() {
     <div v-if="error" class="err">{{ error }}</div>
     <div v-if="saved" class="okmsg">
       <b
-        >Booking {{ saved.reference }} saved with {{ saved.count }}
-        {{ saved.count === 1 ? 'box' : 'boxes' }}.</b
+        >File {{ saved.fileNumber }} · booking {{ saved.reference }} saved with {{ saved.count }}
+        {{ saved.count === 1 ? 'box' : 'boxes'
+        }}<template v-if="saved.expected > saved.count">
+          · {{ saved.expected }} expected, add the numbers as they arrive</template
+        >.</b
       >
       <div v-for="d in saved.duplicates" :key="d.number" style="margin-top: 4px">
         ⚖ {{ d.number }} already exists on booking {{ d.existingBooking }} — both entries are now
@@ -228,6 +255,7 @@ async function addClient() {
       <div class="panel">
         <div class="panel-h">
           <h2>Booking — made by {{ companyName }}</h2>
+          <div class="act hint">the file number is given when you save</div>
         </div>
         <div class="form-grid">
           <div>
@@ -247,12 +275,17 @@ async function addClient() {
               v-model="form.reference"
               class="f mono"
               required
-              maxlength="40"
+              maxlength="20"
+              pattern="[A-Za-z0-9]{6,20}"
+              title="6 to 20 letters and digits, no spaces or symbols"
               placeholder="as the line gave it"
               style="text-transform: uppercase"
             />
             <span v-if="line?.referenceHint" class="hint"
               >{{ line.name }}: {{ line.referenceHint }}</span
+            >
+            <span v-else class="hint"
+              >letters and digits only, 6 to 20, exactly as the line gave it</span
             >
           </div>
           <div>
@@ -283,16 +316,44 @@ async function addClient() {
             </datalist>
           </div>
           <div>
-            <label class="f">Destination (optional)</label
-            ><input
-              v-model="form.destination"
-              class="f"
-              maxlength="120"
-              placeholder="e.g. Ningbo, China"
-            />
+            <label class="f">Status with the line</label>
+            <select v-model="form.status" class="f">
+              <option value="CONFIRMED">Confirmed — typed from the confirmation</option>
+              <option value="PENDING">Pending — asked, not yet confirmed</option>
+            </select>
+          </div>
+          <div v-if="form.status === 'CONFIRMED'">
+            <label class="f">Confirmed on</label>
+            <input v-model="form.confirmedOn" class="f mono" type="date" />
           </div>
           <div>
-            <label class="f">Vessel (optional, fill later if unknown)</label
+            <label class="f">Boxes agreed with the line (if the numbers are not known yet)</label>
+            <div style="display: flex; gap: 8px">
+              <input
+                v-model="form.expectedCount"
+                class="f mono"
+                type="number"
+                min="0"
+                max="100"
+                style="width: 90px"
+              />
+              <select v-model="form.expectedSize" class="f" style="width: 110px">
+                <option v-for="s in CONTAINER_SIZES" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </div>
+            <span class="hint">leave 0 when you type the numbers below</span>
+          </div>
+        </div>
+
+        <div class="pad" style="padding-bottom: 0">
+          <a class="hint" style="cursor: pointer" @click="later = !later"
+            >{{ later ? '▾' : '▸' }} What the line tells you later — vessel, voyage, ports, dates,
+            BL № (all optional, can be filled from the Containers list)</a
+          >
+        </div>
+        <div v-if="later" class="form-grid" style="padding-top: 8px">
+          <div>
+            <label class="f">Vessel</label
             ><input
               v-model="form.vessel"
               class="f"
@@ -302,13 +363,47 @@ async function addClient() {
             />
           </div>
           <div>
-            <label class="f">Voyage (optional)</label
+            <label class="f">Voyage</label
             ><input
               v-model="form.voyage"
               class="f"
               maxlength="40"
               style="text-transform: uppercase"
             />
+          </div>
+          <div>
+            <label class="f">Port of loading</label
+            ><input v-model="form.pol" class="f" maxlength="80" placeholder="e.g. Dar es Salaam" />
+          </div>
+          <div>
+            <label class="f">Port of discharge</label
+            ><input v-model="form.pod" class="f" maxlength="80" placeholder="e.g. Ningbo" />
+          </div>
+          <div>
+            <label class="f">Destination</label
+            ><input
+              v-model="form.destination"
+              class="f"
+              maxlength="120"
+              placeholder="e.g. Ningbo, China"
+            />
+          </div>
+          <div>
+            <label class="f">BL №</label
+            ><input
+              v-model="form.blNumber"
+              class="f mono"
+              maxlength="40"
+              style="text-transform: uppercase"
+            />
+          </div>
+          <div>
+            <label class="f">ETD — estimated departure</label
+            ><input v-model="form.etd" class="f mono" type="date" />
+          </div>
+          <div>
+            <label class="f">ETA — estimated arrival</label
+            ><input v-model="form.eta" class="f mono" type="date" />
           </div>
         </div>
 
@@ -442,9 +537,10 @@ async function addClient() {
           </table>
         </div>
         <div class="pad hint">
-          Paste a whole column of numbers into a box to fill one row each. A number that already
-          exists anywhere in the account is never silently accepted: both entries go side by side to
-          the Managing Director.
+          Numbers not known yet? Leave the rows empty and say how many boxes were agreed above; add
+          each number from the Containers list when it arrives. Paste a whole column of numbers into
+          a box to fill one row each. A number that already exists anywhere in the account is never
+          silently accepted: both entries go side by side to the Managing Director.
         </div>
         <div class="pad" style="display: flex; gap: 8px">
           <button class="btn" :disabled="!allValid || busy">Save booking</button>
@@ -452,15 +548,26 @@ async function addClient() {
             Save &amp; add another
           </button>
           <span class="hint" style="align-self: center"
-            >{{ filled.length }} {{ filled.length === 1 ? 'box' : 'boxes' }} ·
-            {{ allValid ? 'ready' : 'fix the numbers marked ✗' }}</span
+            >{{ filled.length }} {{ filled.length === 1 ? 'box' : 'boxes' }} typed<template
+              v-if="Number(form.expectedCount) > filled.length"
+            >
+              · {{ form.expectedCount }} agreed</template
+            >
+            ·
+            {{
+              !numbersValid
+                ? 'fix the numbers marked ✗'
+                : allValid
+                  ? 'ready'
+                  : 'type the numbers, or how many boxes were agreed'
+            }}</span
           >
         </div>
       </div>
     </form>
     <div class="note">
-      ⓘ Vessel, voyage and destination may be filled in later from the Containers list. Costs,
-      stages and legs come in the next slices; a booking is a list of boxes and nothing more.
+      ⓘ Everything after the four required fields can be filled in later from the Containers list.
+      Costs, stages and legs come in the next slices.
     </div>
   </div>
 </template>

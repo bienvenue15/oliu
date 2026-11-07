@@ -18,4 +18,5 @@ devRouter.get('/mail', (_req, res) => {
 
 devRouter.get('/mail.json', (_req, res) => res.json(devOutbox()));
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const esc = (s: string) =>
+  s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

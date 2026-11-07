@@ -19,6 +19,8 @@ const schema = z.object({
   MAIL_TRANSPORT: z.enum(['memory', 'smtp']).default('memory'),
   SMTP_URL: z.string().optional(),
   MAIL_FROM: z.string().default('OLIU <no-reply@oliu.local>'),
+  /** Folder for files people attach (receipt photos); outside the web root, never served as static files. */
+  UPLOAD_DIR: z.string().optional(),
   /** Set to 'true' only behind HTTPS. */
   COOKIE_SECURE: z
     .string()

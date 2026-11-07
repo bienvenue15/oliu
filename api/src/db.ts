@@ -8,7 +8,12 @@
 import { PrismaClient } from '@prisma/client';
 
 export const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : process.env.NODE_ENV === 'test' ? [] : ['error'],
+  log:
+    process.env.NODE_ENV === 'development'
+      ? ['warn', 'error']
+      : process.env.NODE_ENV === 'test'
+        ? []
+        : ['error'],
 });
 
 export type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
@@ -42,4 +47,13 @@ export function byCompany(s: Scope) {
 /** True when the scope may touch the given company at all. */
 export function mayTouchCompany(s: Scope, companyId: string): boolean {
   return s.companyId === null || s.companyId === companyId;
+}
+
+/** The MD and the Reporting Officer: no company of their own, they see across. */
+export const spansAccount = (s: Scope) => s.companyId === null;
+
+/** `where` fragment for boxes: the ones on my side (the switcher's side for the MD, everything without a switcher). */
+export function bySide(s: Scope) {
+  const mine = s.companyId ?? s.activeCompanyId;
+  return mine ? { responsibleCompanyId: mine } : {};
 }

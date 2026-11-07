@@ -12,7 +12,13 @@ import { attachSession } from './middleware/auth.ts';
 import { identityRouter } from './modules/identity/routes.ts';
 import { accountsRouter } from './modules/accounts/routes.ts';
 import { auditRouter } from './modules/audit/routes.ts';
+import { costsRouter } from './modules/costs/routes.ts';
 import { shipmentsRouter } from './modules/shipments/routes.ts';
+import { journeyRouter } from './modules/journey/routes.ts';
+import { tipsRouter } from './modules/tips/routes.ts';
+import { paymentsRouter } from './modules/payments/routes.ts';
+import { alertsRouter } from './modules/alerts/routes.ts';
+import { eventsRouter } from './modules/events/routes.ts';
 import { devRouter } from './modules/dev/routes.ts';
 
 export function createApp() {
@@ -21,7 +27,8 @@ export function createApp() {
   app.set('trust proxy', 1);
   app.use(helmet());
   app.use(express.json({ limit: '256kb' }));
-  if (!config.isTest) app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
+  if (!config.isTest)
+    app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
   app.use(attachSession);
 
   app.get('/api/health', (_req, res) => res.json({ ok: true, at: new Date().toISOString() }));
@@ -29,6 +36,12 @@ export function createApp() {
   app.use('/api', accountsRouter);
   app.use('/api/audit', auditRouter);
   app.use('/api', shipmentsRouter);
+  app.use('/api', costsRouter);
+  app.use('/api', journeyRouter);
+  app.use('/api', tipsRouter);
+  app.use('/api', paymentsRouter);
+  app.use('/api', alertsRouter);
+  app.use('/api', eventsRouter);
   if (!config.isProd) app.use('/dev', devRouter);
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

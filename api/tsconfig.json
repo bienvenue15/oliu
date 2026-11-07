@@ -15,5 +15,5 @@
     "noEmit": true,
     "outDir": "dist"
   },
-  "include": ["src", "test", "scripts", "prisma/seed.ts", "../shared/src"]
+  "include": ["src", "test", "scripts", "prisma/*.ts", "../shared/src"]
 }

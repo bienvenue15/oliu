@@ -10,6 +10,8 @@
  * GET  /api/bookings?month=YYYY-MM                       this company's bookings (the MD: the switcher's company)
  * POST /api/bookings                                     a booking with its boxes
  * GET  /api/bookings/:id · PATCH /api/bookings/:id       readable anywhere in the account; fill-later fields by its company
+ * POST /api/bookings/:id/confirm | cancel                the line confirmed it · withdrawn with a reason, boxes freed
+ * GET|POST /api/bookings/:id/comments                    append-only notes on a booking
  * POST /api/bookings/:id/containers                      more boxes on a booking
  * GET  /api/containers?q=&month=                         the boxes; q looks a number up across the whole account, read-only
  * GET  /api/containers/check?number=                     is this number well formed, and is it already in the account
@@ -20,20 +22,36 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import {
   addContainersInput,
+  bookingCancelInput,
+  bookingCommentInput,
   bookingInput,
   bookingPatch,
   canOpenScreen,
+  type BookingPatch,
   checkContainerNumber,
   clientInput,
+  containerPatch,
   duplicateResolution,
   ROLE_PERMISSIONS,
   shippingLineInput,
+  sisterBookingInput,
+  STAGE_LABEL,
+  STAGES,
   type Role,
 } from '@oliu/shared';
-import { byAccount, byCompany, mayTouchCompany, prisma, type Scope, type Tx } from '../../db.ts';
+import {
+  byAccount,
+  bySide,
+  mayTouchCompany,
+  prisma,
+  spansAccount,
+  type Scope,
+  type Tx,
+} from '../../db.ts';
 import { audit } from '../../lib/audit.ts';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.ts';
 import { parseBody } from '../../lib/validate.ts';
+import { resolveRepeatPayment } from '../payments/routes.ts';
 import {
   clientIp,
   requireAuth,
@@ -52,6 +70,28 @@ const canWriteBookings = [requireAuth, requireScreen('book'), requirePermission(
 function writingCompany(s: Scope): string {
   const id = s.companyId ?? s.activeCompanyId;
   if (!id) throw badRequest('Choose a company in the switcher first');
+  return id;
+}
+
+/**
+ * The company a booking, a shipping line or a client is made for: the one that bills the client (OLIU in
+ * OLIU · JIVAH), or a branch of it. The partner company deals with boxes after the hand-over, never with bookings.
+ */
+async function bookingCompany(s: Scope): Promise<string | null> {
+  const id = s.companyId ?? s.activeCompanyId;
+  // The MD without a company in the switcher may keep lines and clients (they are the account's); a booking
+  // itself still needs a company, which POST /bookings asks for.
+  if (!id && spansAccount(s)) return null;
+  if (!id) throw badRequest('Choose a company in the switcher first');
+  const c = await prisma.company.findFirst({
+    where: { id, accountId: s.accountId },
+    select: { billsClient: true, kind: true, parent: { select: { billsClient: true } } },
+  });
+  if (!c) throw badRequest('Choose a company in the switcher first');
+  if (!c.billsClient && !(c.kind === 'BRANCH' && c.parent?.billsClient))
+    throw forbidden(
+      'Bookings, shipping lines and clients are made by the company that bills the client',
+    );
   return id;
 }
 
@@ -98,7 +138,7 @@ function sameMoment(e: unknown): never {
   throw e;
 }
 
-type BookingHead = { id: string; reference: string; companyId: string };
+type BookingHead = { id: string; reference: string; companyId: string; status?: string };
 type PlacedContainer = {
   id: string;
   number: string;
@@ -132,6 +172,8 @@ async function placeContainer(
       lot: c.lot,
       status: twin ? 'DUPLICATE' : 'ACTIVE',
       duplicateOfId: twin?.id ?? null,
+      // On the working list of the company that booked it, until the hand-over stage flips it (slice 4).
+      responsibleCompanyId: booking.companyId,
       createdById: s.userId,
     },
     select: { id: true, number: true, size: true, lot: true, status: true, duplicateOfId: true },
@@ -207,6 +249,7 @@ shipmentsRouter.get('/shipping-lines', requireAuth, async (req, res, next) => {
 shipmentsRouter.post('/shipping-lines', ...canWriteBookings, async (req, res, next) => {
   try {
     const s = scopeOf(req);
+    await bookingCompany(s);
     const input = parseBody(shippingLineInput, req.body);
     const dup = await prisma.shippingLine.findFirst({
       where: { ...byAccount(s), name: { equals: input.name, mode: 'insensitive' } },
@@ -248,6 +291,7 @@ shipmentsRouter.get('/clients', requireAuth, async (req, res, next) => {
 shipmentsRouter.post('/clients', ...canWriteBookings, async (req, res, next) => {
   try {
     const s = scopeOf(req);
+    await bookingCompany(s);
     const input = parseBody(clientInput, req.body);
     const dup = await prisma.client.findFirst({
       where: { ...byAccount(s), name: { equals: input.name, mode: 'insensitive' } },
@@ -279,14 +323,55 @@ shipmentsRouter.post('/clients', ...canWriteBookings, async (req, res, next) => 
 
 // ---------------------------------------------------------------- bookings
 
+/** OLIU-2026-0042: the company's code, the year, a four-digit sequence. The code is the first word of the legal name. */
+function companyCode(legalName: string): string {
+  const first = legalName.trim().split(/\s+/)[0] ?? '';
+  return (
+    first
+      .replace(/[^A-Za-z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 6) || 'FILE'
+  );
+}
+
+/** Bumps the company's counter for the year in one atomic statement, so two bookings at the same moment never share a number. */
+async function nextFileNumber(tx: Tx, company: { id: string; legalName: string }): Promise<string> {
+  const year = new Date().getUTCFullYear();
+  const rows = await tx.$queryRaw<{ next: number }[]>`
+    INSERT INTO "FileSequence" ("companyId", "year", "next") VALUES (${company.id}::uuid, ${year}, 1)
+    ON CONFLICT ("companyId", "year") DO UPDATE SET "next" = "FileSequence"."next" + 1
+    RETURNING "next"`;
+  return `${companyCode(company.legalName)}-${year}-${String(rows[0]!.next).padStart(4, '0')}`;
+}
+
+/** Date fields arrive as YYYY-MM-DD or null; Prisma wants Date or null. */
+const asDate = (d: string | null | undefined) =>
+  d === undefined ? undefined : d ? new Date(d) : null;
+
+function patchData(p: BookingPatch) {
+  const { etd, eta, ...rest } = p;
+  return { ...rest, etd: asDate(etd), eta: asDate(eta) };
+}
+
 const bookingSelect = {
   id: true,
+  fileNumber: true,
   reference: true,
   cargo: true,
   destination: true,
   vessel: true,
   voyage: true,
+  pol: true,
+  pod: true,
+  etd: true,
+  eta: true,
+  blNumber: true,
+  expectedCount: true,
+  expectedSize: true,
   status: true,
+  confirmedAt: true,
+  cancelledAt: true,
+  cancelReason: true,
   companyId: true,
   createdAt: true,
   shippingLine: { select: { id: true, name: true } },
@@ -310,9 +395,23 @@ shipmentsRouter.get('/bookings', requireAuth, async (req, res, next) => {
   try {
     const s = scopeOf(req);
     const q = parseBody(monthQuery, req.query);
+    // My bookings, and the bookings whose boxes are on my side now (the other side's, after the hand-over):
+    // those are the ones I enter costs on, release and close.
+    const mine = s.companyId ?? s.activeCompanyId;
     const [rows, names] = await Promise.all([
       prisma.booking.findMany({
-        where: { ...byCompany(s), createdAt: monthRange(q.month) },
+        where: {
+          ...byAccount(s),
+          ...(mine
+            ? {
+                OR: [
+                  { companyId: mine },
+                  { containers: { some: { responsibleCompanyId: mine, status: 'ACTIVE' } } },
+                ],
+              }
+            : {}),
+          createdAt: monthRange(q.month),
+        },
         orderBy: { createdAt: 'desc' },
         take: 200,
         select: bookingSelect,
@@ -328,6 +427,7 @@ shipmentsRouter.get('/bookings', requireAuth, async (req, res, next) => {
 shipmentsRouter.post('/bookings', ...canWriteBookings, async (req, res, next) => {
   try {
     const s = scopeOf(req);
+    await bookingCompany(s);
     const companyId = writingCompany(s);
     const input = parseBody(bookingInput, req.body);
     const [line, client] = await Promise.all([
@@ -358,20 +458,36 @@ shipmentsRouter.post('/bookings', ...canWriteBookings, async (req, res, next) =>
         `Booking ${input.reference} already exists; open it from the Containers list to add boxes`,
       );
 
+    const company = await prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { id: true, legalName: true },
+    });
     const ip = clientIp(req);
     const result = await prisma
       .$transaction(async (tx) => {
+        // The line and client ids were verified above and are set from those rows, not from the body.
+        const {
+          containers,
+          status,
+          confirmedOn,
+          etd,
+          eta,
+          shippingLineId: _line,
+          clientId: _client,
+          ...fields
+        } = input;
         const booking = await tx.booking.create({
           data: {
             accountId: s.accountId,
             companyId,
+            fileNumber: await nextFileNumber(tx, company),
             shippingLineId: line.id,
             clientId: client.id,
-            reference: input.reference,
-            cargo: input.cargo,
-            destination: input.destination,
-            vessel: input.vessel,
-            voyage: input.voyage,
+            ...fields,
+            etd: asDate(etd),
+            eta: asDate(eta),
+            status,
+            confirmedAt: status === 'CONFIRMED' ? (asDate(confirmedOn) ?? new Date()) : null,
             createdById: s.userId,
           },
         });
@@ -385,12 +501,15 @@ shipmentsRouter.post('/bookings', ...canWriteBookings, async (req, res, next) =>
             entity: 'booking',
             entityId: booking.id,
             after: {
+              fileNumber: booking.fileNumber,
               reference: booking.reference,
               line: line.name,
               client: client.name,
               cargo: booking.cargo,
               vessel: booking.vessel,
-              boxes: input.containers.length,
+              status: booking.status,
+              boxes: containers.length,
+              expected: booking.expectedCount,
             },
             ip,
           },
@@ -427,23 +546,58 @@ shipmentsRouter.get('/bookings/:id', requireAuth, async (req, res, next) => {
         shippingLine: { select: { id: true, name: true, usualPrefixes: true } },
         client: { select: { id: true, name: true, legalName: true } },
         containers: { orderBy: { createdAt: 'asc' } },
+        comments: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!b) throw notFound('Booking not found');
-    const [names, twins] = await Promise.all([
+    // One side, one company: the booking's company and the side holding some of its boxes may read it.
+    const onMySide = b.containers.filter((c) => mayTouchCompany(s, c.responsibleCompanyId));
+    if (!spansAccount(s) && !mayTouchCompany(s, b.companyId) && onMySide.length === 0)
+      throw forbidden("This booking is on the other company's side");
+    const elsewhere = spansAccount(s)
+      ? []
+      : STAGES.filter((st) =>
+          b.containers.some(
+            (c) =>
+              c.status === 'ACTIVE' &&
+              c.stage === st &&
+              !mayTouchCompany(s, c.responsibleCompanyId),
+          ),
+        ).map((st) => ({
+          stage: st,
+          label: STAGE_LABEL[st],
+          count: b.containers.filter(
+            (c) =>
+              c.status === 'ACTIVE' &&
+              c.stage === st &&
+              !mayTouchCompany(s, c.responsibleCompanyId),
+          ).length,
+        }));
+    const shown = spansAccount(s)
+      ? b.containers
+      : b.containers.filter(
+          (c) => c.status !== 'ACTIVE' || mayTouchCompany(s, c.responsibleCompanyId),
+        );
+    const [names, twins, authors] = await Promise.all([
       companyNames(s.accountId),
-      twinReferences(b.containers),
+      twinReferences(shown),
+      userNames([...b.comments.map((c) => c.userId), b.createdById]),
     ]);
     const role = s.role as Role;
     res.json({
       ...b,
       companyName: names.get(b.companyId) ?? '',
-      containers: b.containers.map((c) => ({
+      createdBy: authors.get(b.createdById) ?? '—',
+      comments: b.comments.map((c) => ({ ...c, userName: authors.get(c.userId) ?? '—' })),
+      containers: shown.map((c) => ({
         ...c,
+        responsibleCompanyName: names.get(c.responsibleCompanyId) ?? '',
         duplicateOf: c.duplicateOfId
           ? { bookingReference: twins.get(c.duplicateOfId) ?? '' }
           : null,
       })),
+      /** Boxes of this booking on the other side: how many, at which stage; nothing else. */
+      elsewhere,
       mayEdit:
         ROLE_PERMISSIONS[role].includes('write') &&
         canOpenScreen(role, 'book') &&
@@ -467,15 +621,28 @@ async function twinReferences(
   return new Map(rows.map((r) => [r.id, r.booking.reference]));
 }
 
-/** The booking of this account the caller may change, or the right error. */
-async function ownBooking(s: Scope, id: string): Promise<BookingHead> {
+/** Names for a set of user ids, for comments and "made by". */
+async function userNames(ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = await prisma.user.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, name: true },
+  });
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+/** The booking of this account the caller may change, or the right error. A cancelled booking is closed to changes. */
+async function ownBooking(s: Scope, id: string, allowCancelled = false): Promise<BookingHead> {
   const b = await prisma.booking.findFirst({
     where: { id, ...byAccount(s) },
-    select: { id: true, reference: true, companyId: true },
+    select: { id: true, reference: true, companyId: true, status: true },
   });
   if (!b) throw notFound('Booking not found');
   if (!mayTouchCompany(s, b.companyId))
     throw forbidden('This booking belongs to the other company; you can read it, not change it');
+  if (b.status === 'CANCELLED' && !allowCancelled)
+    throw conflict(`Booking ${b.reference} is cancelled; it can be read, not changed`);
   return b;
 }
 
@@ -486,10 +653,22 @@ shipmentsRouter.patch('/bookings/:id', ...canWriteBookings, async (req, res, nex
     const head = await ownBooking(s, String(req.params.id));
     const before = await prisma.booking.findUniqueOrThrow({
       where: { id: head.id },
-      select: { cargo: true, destination: true, vessel: true, voyage: true },
+      select: {
+        cargo: true,
+        destination: true,
+        vessel: true,
+        voyage: true,
+        pol: true,
+        pod: true,
+        etd: true,
+        eta: true,
+        blNumber: true,
+        expectedCount: true,
+        expectedSize: true,
+      },
     });
     const updated = await prisma.$transaction(async (tx) => {
-      const b = await tx.booking.update({ where: { id: head.id }, data: patch });
+      const b = await tx.booking.update({ where: { id: head.id }, data: patchData(patch) });
       const changed = Object.fromEntries(
         Object.keys(patch).map((k) => [k, before[k as keyof typeof before]]),
       );
@@ -511,6 +690,157 @@ shipmentsRouter.patch('/bookings/:id', ...canWriteBookings, async (req, res, nex
       return b;
     });
     res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** The line has confirmed a pending booking. */
+shipmentsRouter.post('/bookings/:id/confirm', ...canWriteBookings, async (req, res, next) => {
+  try {
+    const s = scopeOf(req);
+    const { confirmedOn } = parseBody(
+      z.object({
+        confirmedOn: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      }),
+      req.body ?? {},
+    );
+    const head = await ownBooking(s, String(req.params.id));
+    if (head.status !== 'PENDING') throw conflict(`Booking ${head.reference} is already confirmed`);
+    const updated = await prisma.$transaction(async (tx) => {
+      const b = await tx.booking.update({
+        where: { id: head.id },
+        data: { status: 'CONFIRMED', confirmedAt: asDate(confirmedOn) ?? new Date() },
+      });
+      await audit(
+        {
+          accountId: s.accountId,
+          userId: s.userId,
+          companyId: head.companyId,
+          module: MODULE,
+          action: 'booking_confirmed',
+          entity: 'booking',
+          entityId: head.id,
+          before: { status: 'PENDING' },
+          after: { status: 'CONFIRMED', confirmedAt: b.confirmedAt },
+          ip: clientIp(req),
+        },
+        tx,
+      );
+      return b;
+    });
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Cancel a booking with a reason. Nothing is deleted: the booking stays in the record as CANCELLED, its boxes
+ * are withdrawn (their numbers are free again), and any duplicate case waiting on them is closed.
+ */
+shipmentsRouter.post('/bookings/:id/cancel', ...canWriteBookings, async (req, res, next) => {
+  try {
+    const s = scopeOf(req);
+    const { reason } = parseBody(bookingCancelInput, req.body);
+    const head = await ownBooking(s, String(req.params.id));
+    const ip = clientIp(req);
+    const updated = await prisma.$transaction(async (tx) => {
+      const boxes = await tx.container.findMany({
+        where: { bookingId: head.id, status: { not: 'WITHDRAWN' } },
+        select: { id: true, number: true, status: true },
+      });
+      await tx.container.updateMany({
+        where: { id: { in: boxes.map((b) => b.id) } },
+        data: { status: 'WITHDRAWN' },
+      });
+      await tx.mdQueueItem.updateMany({
+        where: { accountId: s.accountId, status: 'OPEN', entityId: { in: boxes.map((b) => b.id) } },
+        data: {
+          status: 'RESOLVED',
+          resolution: 'BOOKING_CANCELLED',
+          resolvedById: s.userId,
+          resolvedAt: new Date(),
+        },
+      });
+      const b = await tx.booking.update({
+        where: { id: head.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason },
+      });
+      await audit(
+        {
+          accountId: s.accountId,
+          userId: s.userId,
+          companyId: head.companyId,
+          module: MODULE,
+          action: 'booking_cancelled',
+          entity: 'booking',
+          entityId: head.id,
+          before: { status: head.status, boxes: boxes.map((x) => x.number) },
+          after: { status: 'CANCELLED', reason },
+          ip,
+        },
+        tx,
+      );
+      return b;
+    });
+    res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Comments: readable wherever the booking is readable; written by the company that made it. */
+shipmentsRouter.get('/bookings/:id/comments', requireAuth, async (req, res, next) => {
+  try {
+    const s = scopeOf(req);
+    const b = await prisma.booking.findFirst({
+      where: { id: String(req.params.id), ...byAccount(s) },
+      select: {
+        companyId: true,
+        comments: { orderBy: { createdAt: 'asc' } },
+        containers: { where: { status: 'ACTIVE', ...bySide(s) }, select: { id: true } },
+      },
+    });
+    if (!b) throw notFound('Booking not found');
+    if (!spansAccount(s) && !mayTouchCompany(s, b.companyId) && b.containers.length === 0)
+      throw forbidden("This booking is on the other company's side");
+    const names = await userNames(b.comments.map((c) => c.userId));
+    res.json(b.comments.map((c) => ({ ...c, userName: names.get(c.userId) ?? '—' })));
+  } catch (e) {
+    next(e);
+  }
+});
+
+shipmentsRouter.post('/bookings/:id/comments', ...canWriteBookings, async (req, res, next) => {
+  try {
+    const s = scopeOf(req);
+    const { text } = parseBody(bookingCommentInput, req.body);
+    const head = await ownBooking(s, String(req.params.id), true);
+    const comment = await prisma.$transaction(async (tx) => {
+      const c = await tx.bookingComment.create({
+        data: { accountId: s.accountId, bookingId: head.id, userId: s.userId, text },
+      });
+      await audit(
+        {
+          accountId: s.accountId,
+          userId: s.userId,
+          companyId: head.companyId,
+          module: MODULE,
+          action: 'booking_commented',
+          entity: 'booking',
+          entityId: head.id,
+          after: { comment: c.id },
+          ip: clientIp(req),
+        },
+        tx,
+      );
+      return c;
+    });
+    res.status(201).json({ ...comment, userName: req.user?.name ?? '—' });
   } catch (e) {
     next(e);
   }
@@ -552,6 +882,130 @@ shipmentsRouter.post('/bookings/:id/containers', ...canWriteBookings, async (req
   }
 });
 
+/**
+ * Some boxes released, others waiting: the line gives a sister number (the first plus a suffix) and the
+ * waiting boxes move to it, with their cost lines, so released and waiting boxes never mix on one number.
+ */
+shipmentsRouter.post('/bookings/:id/sister', ...canWriteBookings, async (req, res, next) => {
+  try {
+    const s = scopeOf(req);
+    const input = parseBody(sisterBookingInput, req.body);
+    const parent = await prisma.booking.findFirst({
+      where: { id: String(req.params.id), ...byAccount(s) },
+      include: {
+        shippingLine: {
+          select: { id: true, name: true, referencePattern: true, referenceHint: true },
+        },
+        company: { select: { id: true, legalName: true } },
+      },
+    });
+    if (!parent) throw notFound('Booking not found');
+    if (!mayTouchCompany(s, parent.companyId))
+      throw forbidden('This booking belongs to the other company; you can read it, not split it');
+    if (parent.status === 'CANCELLED') throw conflict('This booking is cancelled');
+    if (input.reference === parent.reference)
+      throw badRequest('The sister number must differ from the first');
+    const line = parent.shippingLine;
+    if (line.referencePattern && !new RegExp(line.referencePattern).test(input.reference))
+      throw badRequest('Check the highlighted fields', [
+        {
+          path: 'reference',
+          message: `${line.name} booking numbers look like: ${line.referenceHint || line.referencePattern}`,
+        },
+      ]);
+    const taken = await prisma.booking.findUnique({
+      where: { accountId_reference: { accountId: s.accountId, reference: input.reference } },
+      select: { id: true },
+    });
+    if (taken) throw conflict(`Booking ${input.reference} already exists`);
+    const boxes = await prisma.container.findMany({
+      where: {
+        id: { in: input.containerIds },
+        bookingId: parent.id,
+        status: 'ACTIVE',
+        ...bySide(s),
+      },
+      select: { id: true, number: true, releasedAt: true, closedAt: true },
+    });
+    if (boxes.length !== new Set(input.containerIds).size)
+      throw badRequest('One of the boxes is not a live container of this booking on your side');
+    const stuck = boxes.find((b) => b.releasedAt || b.closedAt);
+    if (stuck) throw conflict(`${stuck.number} is released or closed; only waiting boxes move`);
+    const ip = clientIp(req);
+    const ids = boxes.map((x) => x.id);
+    const sister = await prisma.$transaction(async (tx) => {
+      const fileNumber = await nextFileNumber(tx, parent.company);
+      const b = await tx.booking.create({
+        data: {
+          accountId: s.accountId,
+          companyId: parent.companyId,
+          shippingLineId: parent.shippingLineId,
+          clientId: parent.clientId,
+          fileNumber,
+          reference: input.reference,
+          cargo: parent.cargo,
+          destination: parent.destination,
+          pol: parent.pol,
+          pod: parent.pod,
+          status: 'CONFIRMED',
+          confirmedAt: new Date(),
+          parentId: parent.id,
+          createdById: s.userId,
+        },
+      });
+      await tx.container.updateMany({ where: { id: { in: ids } }, data: { bookingId: b.id } });
+      await tx.costLine.updateMany({
+        where: { containerId: { in: ids } },
+        data: { bookingId: b.id },
+      });
+      await audit(
+        {
+          accountId: s.accountId,
+          userId: s.userId,
+          companyId: parent.companyId,
+          module: MODULE,
+          action: 'sister_booking_opened',
+          entity: 'booking',
+          entityId: b.id,
+          after: {
+            reference: input.reference,
+            fileNumber,
+            parent: parent.reference,
+            boxes: boxes.map((x) => x.number),
+          },
+          ip,
+        },
+        tx,
+      );
+      for (const x of boxes)
+        await audit(
+          {
+            accountId: s.accountId,
+            userId: s.userId,
+            companyId: parent.companyId,
+            module: MODULE,
+            action: 'container_moved_to_sister',
+            entity: 'container',
+            entityId: x.id,
+            before: { booking: parent.reference },
+            after: { booking: input.reference, number: x.number },
+            ip,
+          },
+          tx,
+        );
+      return b;
+    });
+    res.status(201).json({
+      id: sister.id,
+      reference: sister.reference,
+      fileNumber: sister.fileNumber,
+      moved: boxes.map((x) => x.number),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ---------------------------------------------------------------- containers
 
 const containersQuery = monthQuery.extend({ q: z.string().trim().max(20).optional() });
@@ -562,8 +1016,14 @@ const containerSelect = {
   size: true,
   lot: true,
   stage: true,
+  stageAt: true,
   status: true,
   duplicateOfId: true,
+  responsibleCompanyId: true,
+  lastPlace: true,
+  lastSeenAt: true,
+  holdReason: true,
+  closedAt: true,
   createdAt: true,
   booking: {
     select: {
@@ -579,18 +1039,20 @@ const containerSelect = {
 } satisfies Prisma.ContainerSelect;
 
 /**
- * Without `q`: the boxes of this company's bookings (the switcher's company for the MD), newest first.
- * With `q`: every box of the account whose number contains it, read-only. That is how the other side
- * finds a box that is not on its own working list yet.
+ * Without `q`: this company's working list — the boxes it is responsible for (the switcher's company for the
+ * MD), newest first; a box leaves it at the hand-over stage. With `handed`: the boxes of this company's
+ * bookings that another company is now responsible for, read-only. With `q`: every box of the account whose
+ * number contains it, read-only. That is how the other side finds a box that is not on its own list yet.
  */
 shipmentsRouter.get('/containers', requireAuth, async (req, res, next) => {
   try {
     const s = scopeOf(req);
     const q = parseBody(containersQuery, req.query);
     const needle = q.q ? q.q.toUpperCase().replace(/[\s-]/g, '') : '';
+    // One side, one company: a box is found only by the side it is on (the MD finds any).
     const where: Prisma.ContainerWhereInput = needle
-      ? { accountId: s.accountId, number: { contains: needle } }
-      : { accountId: s.accountId, booking: { ...byCompany(s), createdAt: monthRange(q.month) } };
+      ? { accountId: s.accountId, number: { contains: needle }, ...bySide(s) }
+      : { accountId: s.accountId, ...bySide(s), booking: { createdAt: monthRange(q.month) } };
     const [rows, names] = await Promise.all([
       prisma.container.findMany({
         where,
@@ -604,6 +1066,7 @@ shipmentsRouter.get('/containers', requireAuth, async (req, res, next) => {
     res.json(
       rows.map((c) => ({
         ...c,
+        responsibleCompanyName: names.get(c.responsibleCompanyId) ?? '',
         duplicateOf: c.duplicateOfId
           ? { bookingReference: twins.get(c.duplicateOfId) ?? '' }
           : null,
@@ -621,33 +1084,86 @@ shipmentsRouter.get('/containers', requireAuth, async (req, res, next) => {
 });
 
 /** Is this number well formed, and does the account already hold it? Lets the form say so before saving. */
-shipmentsRouter.get('/containers/check', requireAuth, async (req, res, next) => {
+/** Lot and weight may be corrected on a box by its booking's company; the number only through the MD's ruling. */
+shipmentsRouter.patch('/containers/:id', ...canWriteBookings, async (req, res, next) => {
   try {
     const s = scopeOf(req);
-    const { number } = parseBody(z.object({ number: z.string().trim().min(1).max(20) }), req.query);
-    const check = checkContainerNumber(number);
-    if (!check.ok) {
-      res.json({ ...check, existing: null });
-      return;
-    }
-    const twin = await prisma.container.findFirst({
-      where: { accountId: s.accountId, number: check.number, status: 'ACTIVE' },
-      select: { booking: { select: { reference: true, companyId: true } } },
+    const patch = parseBody(containerPatch, req.body);
+    const c = await prisma.container.findFirst({
+      where: { id: String(req.params.id), ...byAccount(s) },
+      select: {
+        id: true,
+        number: true,
+        lot: true,
+        weightKg: true,
+        responsibleCompanyId: true,
+        booking: { select: { companyId: true } },
+      },
     });
-    const names = twin ? await companyNames(s.accountId) : null;
-    res.json({
-      ...check,
-      existing: twin
-        ? {
-            bookingReference: twin.booking.reference,
-            companyName: names?.get(twin.booking.companyId) ?? '',
-          }
-        : null,
+    if (!c) throw notFound('Container not found');
+    if (!mayTouchCompany(s, c.responsibleCompanyId))
+      throw forbidden("This box is on the other company's side");
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.container.update({ where: { id: c.id }, data: patch });
+      await audit(
+        {
+          accountId: s.accountId,
+          userId: s.userId,
+          companyId: c.booking.companyId,
+          module: MODULE,
+          action: 'container_updated',
+          entity: 'container',
+          entityId: c.id,
+          before: { lot: c.lot, weightKg: c.weightKg },
+          after: patch,
+          ip: clientIp(req),
+        },
+        tx,
+      );
+      return u;
     });
+    res.json(updated);
   } catch (e) {
     next(e);
   }
 });
+
+shipmentsRouter.get(
+  '/containers/check',
+  requireAuth,
+  requireScreen('book'),
+  async (req, res, next) => {
+    try {
+      const s = scopeOf(req);
+      await bookingCompany(s);
+      const { number } = parseBody(
+        z.object({ number: z.string().trim().min(1).max(20) }),
+        req.query,
+      );
+      const check = checkContainerNumber(number);
+      if (!check.ok) {
+        res.json({ ...check, existing: null });
+        return;
+      }
+      const twin = await prisma.container.findFirst({
+        where: { accountId: s.accountId, number: check.number, status: 'ACTIVE' },
+        select: { booking: { select: { reference: true, companyId: true } } },
+      });
+      const names = twin ? await companyNames(s.accountId) : null;
+      res.json({
+        ...check,
+        existing: twin
+          ? {
+              bookingReference: twin.booking.reference,
+              companyName: names?.get(twin.booking.companyId) ?? '',
+            }
+          : null,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 // ---------------------------------------------------------------- the MD queue (duplicates only, for now)
 
@@ -743,6 +1259,90 @@ shipmentsRouter.post(
       });
       if (!item) throw notFound('Nothing waiting under that number');
       if (item.status !== 'OPEN') throw conflict('Already ruled on');
+      // A payment that repeats a paid one (slice 6): the MD lets it through as genuine, or refuses it.
+      if (item.kind === 'REPEAT_PAYMENT') {
+        res.json(await resolveRepeatPayment(s, item, input, clientIp(req)));
+        return;
+      }
+      // A cost or tip typed on a box that was on the other company's side: it counts, or it is voided.
+      if (item.kind === 'COST_OTHER_SIDE') {
+        if (input.resolution !== 'APPROVE' && input.resolution !== 'REFUSE')
+          throw badRequest('Approve it or refuse it');
+        if (input.resolution === 'REFUSE' && !input.reason)
+          throw badRequest('Say why it is refused');
+        const lineIds = (item.summary as { costLineIds?: string[] }).costLineIds ?? [];
+        const ruled = await prisma.$transaction(async (tx) => {
+          await tx.costLine.updateMany({
+            where: { id: { in: lineIds }, status: 'PENDING_MD' },
+            data:
+              input.resolution === 'APPROVE'
+                ? { status: 'ACTIVE' }
+                : { status: 'VOID', voidReason: `Refused by the MD: ${input.reason}` },
+          });
+          const u = await tx.mdQueueItem.update({
+            where: { id: item.id },
+            data: {
+              status: 'RESOLVED',
+              resolution: input.resolution,
+              resolvedById: s.userId,
+              resolvedAt: new Date(),
+            },
+          });
+          await audit(
+            {
+              accountId: s.accountId,
+              userId: s.userId,
+              companyId: item.companyId,
+              module: MODULE,
+              action:
+                input.resolution === 'APPROVE'
+                  ? 'other_side_cost_approved'
+                  : 'other_side_cost_refused',
+              entity: 'cost_line',
+              entityId: lineIds[0] ?? null,
+              after: { lines: lineIds.length, reason: input.reason ?? '', summary: item.summary },
+              ip: clientIp(req),
+            },
+            tx,
+          );
+          return u;
+        });
+        res.json(ruled);
+        return;
+      }
+      // Items that only inform the MD (slice 4: a cost on a box already closed to Finance) are noted, not ruled on.
+      if (item.kind !== 'DUPLICATE_CONTAINER') {
+        if (input.resolution !== 'NOTED') throw badRequest('This item is only noted');
+        const noted = await prisma.$transaction(async (tx) => {
+          const u = await tx.mdQueueItem.update({
+            where: { id: item.id },
+            data: {
+              status: 'RESOLVED',
+              resolution: 'NOTED',
+              resolvedById: s.userId,
+              resolvedAt: new Date(),
+            },
+          });
+          await audit(
+            {
+              accountId: s.accountId,
+              userId: s.userId,
+              companyId: item.companyId,
+              module: MODULE,
+              action: 'queue_item_noted',
+              entity: item.entity,
+              entityId: item.entityId,
+              after: { kind: item.kind, summary: item.summary },
+              ip: clientIp(req),
+            },
+            tx,
+          );
+          return u;
+        });
+        res.json(noted);
+        return;
+      }
+      if (input.resolution === 'NOTED') throw badRequest('A duplicate needs a ruling, not a note');
       if (item.kind !== 'DUPLICATE_CONTAINER') throw badRequest('Not a duplicate container');
       if (input.resolution === 'CORRECT_NUMBER' && !input.number)
         throw badRequest('Give the corrected number');

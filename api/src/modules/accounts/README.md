@@ -13,3 +13,8 @@ a GROUP needs a PARTNER and a hand-over stage · a company-bound role must name 
 their own access · a one-company user lists only their company (and its branches).
 
 **Later slices add:** four-eyes on bank changes (Payments), feature-switch screen (owner portal).
+
+**28 Oct 2026:** `GET /api/account` needs the `sub` screen and `GET /api/users` the `adm` screen (the MD); every
+other role learns its own company from `/api/auth/me`. The reads of `/api/settings`, `/api/rates` (history) and
+`/api/tip-reasons` need the `cfg` screen; `/api/rates/latest` and `/api/cost-categories` stay open to the roles that
+enter costs; `/api/containers/check` is the booking side's.

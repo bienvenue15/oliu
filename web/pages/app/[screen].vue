@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue';
 /**
- * One route for every screen key of the mockup. Slice 1 builds three of them (adm, sub, aud);
+ * One route for every screen key of the mockup. Each slice registers its screens here (slice 4: journey, rel, handoff; slice 6: queue, cashier, ben, superq);
  * every other key shows which slice brings it, so nobody wonders whether a menu is broken.
  */
 import ScreenUsers from '~/components/ScreenUsers.vue';
@@ -9,6 +9,18 @@ import ScreenCompany from '~/components/ScreenCompany.vue';
 import ScreenAudit from '~/components/ScreenAudit.vue';
 import ScreenBooking from '~/components/ScreenBooking.vue';
 import ScreenContainers from '~/components/ScreenContainers.vue';
+import ScreenCostSplit from '~/components/ScreenCostSplit.vue';
+import ScreenContainerRecord from '~/components/ScreenContainerRecord.vue';
+import ScreenConfig from '~/components/ScreenConfig.vue';
+import ScreenJourney from '~/components/ScreenJourney.vue';
+import ScreenRelease from '~/components/ScreenRelease.vue';
+import ScreenHandoff from '~/components/ScreenHandoff.vue';
+import ScreenTip from '~/components/ScreenTip.vue';
+import ScreenTipComplete from '~/components/ScreenTipComplete.vue';
+import ScreenPayQueue from '~/components/ScreenPayQueue.vue';
+import ScreenCashier from '~/components/ScreenCashier.vue';
+import ScreenBeneficiaries from '~/components/ScreenBeneficiaries.vue';
+import ScreenMdQueue from '~/components/ScreenMdQueue.vue';
 definePageMeta({ layout: 'app', middleware: 'auth' });
 const route = useRoute();
 const { me } = useSession();
@@ -24,6 +36,18 @@ const built: Record<string, Component> = {
   aud: ScreenAudit,
   book: ScreenBooking,
   cont: ScreenContainers,
+  csplit: ScreenCostSplit,
+  cost: ScreenContainerRecord,
+  cfg: ScreenConfig,
+  journey: ScreenJourney,
+  rel: ScreenRelease,
+  handoff: ScreenHandoff,
+  tip: ScreenTip,
+  tiplat: ScreenTipComplete,
+  queue: ScreenPayQueue,
+  cashier: ScreenCashier,
+  ben: ScreenBeneficiaries,
+  superq: ScreenMdQueue,
 };
 </script>
 
